@@ -1,7 +1,7 @@
-app_name = "base_app"
-app_title = "Base App"
+app_name = "nce_sync"
+app_title = "NCE Sync"
 app_publisher = "Oliver Reid"
-app_description = "bare bnoes starter app"
+app_description = For syncing WP tables and Frappe"
 app_email = "oreid@firstgm.com"
 app_license = "mit"
 
@@ -13,11 +13,11 @@ app_license = "mit"
 # Each item in the list will be shown as an app in the apps page
 # add_to_apps_screen = [
 # 	{
-# 		"name": "base_app",
-# 		"logo": "/assets/base_app/logo.png",
+# 		"name": "nce_sync",
+# 		"logo": "/assets/nce_sync/logo.png",
 # 		"title": "Base App",
-# 		"route": "/base_app",
-# 		"has_permission": "base_app.api.permission.has_app_permission"
+# 		"route": "/nce_sync",
+# 		"has_permission": "nce_sync.api.permission.has_app_permission"
 # 	}
 # ]
 
@@ -25,15 +25,15 @@ app_license = "mit"
 # ------------------
 
 # include js, css files in header of desk.html
-# app_include_css = "/assets/base_app/css/base_app.css"
-# app_include_js = "/assets/base_app/js/base_app.js"
+# app_include_css = "/assets/nce_sync/css/nce_sync.css"
+# app_include_js = "/assets/nce_sync/js/nce_sync.js"
 
 # include js, css files in header of web template
-# web_include_css = "/assets/base_app/css/base_app.css"
-# web_include_js = "/assets/base_app/js/base_app.js"
+# web_include_css = "/assets/nce_sync/css/nce_sync.css"
+# web_include_js = "/assets/nce_sync/js/nce_sync.js"
 
 # include custom scss in every website theme (without file extension ".scss")
-# website_theme_scss = "base_app/public/scss/website"
+# website_theme_scss = "nce_sync/public/scss/website"
 
 # include js, css files in header of web form
 # webform_include_js = {"doctype": "public/js/doctype.js"}
@@ -51,7 +51,7 @@ app_license = "mit"
 # Svg Icons
 # ------------------
 # include app icons in desk
-# app_include_icons = "base_app/public/icons.svg"
+# app_include_icons = "nce_sync/public/icons.svg"
 
 # Home Pages
 # ----------
@@ -78,43 +78,43 @@ app_license = "mit"
 
 # add methods and filters to jinja environment
 # jinja = {
-# 	"methods": "base_app.utils.jinja_methods",
-# 	"filters": "base_app.utils.jinja_filters"
+# 	"methods": "nce_sync.utils.jinja_methods",
+# 	"filters": "nce_sync.utils.jinja_filters"
 # }
 
 # Installation
 # ------------
 
-# before_install = "base_app.install.before_install"
-# after_install = "base_app.install.after_install"
+# before_install = "nce_sync.install.before_install"
+# after_install = "nce_sync.install.after_install"
 
 # Uninstallation
 # ------------
 
-# before_uninstall = "base_app.uninstall.before_uninstall"
-# after_uninstall = "base_app.uninstall.after_uninstall"
+# before_uninstall = "nce_sync.uninstall.before_uninstall"
+# after_uninstall = "nce_sync.uninstall.after_uninstall"
 
 # Integration Setup
 # ------------------
 # To set up dependencies/integrations with other apps
 # Name of the app being installed is passed as an argument
 
-# before_app_install = "base_app.utils.before_app_install"
-# after_app_install = "base_app.utils.after_app_install"
+# before_app_install = "nce_sync.utils.before_app_install"
+# after_app_install = "nce_sync.utils.after_app_install"
 
 # Integration Cleanup
 # -------------------
 # To clean up dependencies/integrations with other apps
 # Name of the app being uninstalled is passed as an argument
 
-# before_app_uninstall = "base_app.utils.before_app_uninstall"
-# after_app_uninstall = "base_app.utils.after_app_uninstall"
+# before_app_uninstall = "nce_sync.utils.before_app_uninstall"
+# after_app_uninstall = "nce_sync.utils.after_app_uninstall"
 
 # Desk Notifications
 # ------------------
 # See frappe.core.notifications.get_notification_config
 
-# notification_config = "base_app.notifications.get_notification_config"
+# notification_config = "nce_sync.notifications.get_notification_config"
 
 # Permissions
 # -----------
@@ -145,47 +145,47 @@ app_license = "mit"
 
 # scheduler_events = {
 # 	"all": [
-# 		"base_app.tasks.all"
+# 		"nce_sync.tasks.all"
 # 	],
 # 	"daily": [
-# 		"base_app.tasks.daily"
+# 		"nce_sync.tasks.daily"
 # 	],
 # 	"hourly": [
-# 		"base_app.tasks.hourly"
+# 		"nce_sync.tasks.hourly"
 # 	],
 # 	"weekly": [
-# 		"base_app.tasks.weekly"
+# 		"nce_sync.tasks.weekly"
 # 	],
 # 	"monthly": [
-# 		"base_app.tasks.monthly"
+# 		"nce_sync.tasks.monthly"
 # 	],
 # }
 
 # Testing
 # -------
 
-# before_tests = "base_app.install.before_tests"
+# before_tests = "nce_sync.install.before_tests"
 
 # Extend DocType Class
 # ------------------------------
 #
 # Specify custom mixins to extend the standard doctype controller.
 # extend_doctype_class = {
-# 	"Task": "base_app.custom.task.CustomTaskMixin"
+# 	"Task": "nce_sync.custom.task.CustomTaskMixin"
 # }
 
 # Overriding Methods
 # ------------------------------
 #
 # override_whitelisted_methods = {
-# 	"frappe.desk.doctype.event.event.get_events": "base_app.event.get_events"
+# 	"frappe.desk.doctype.event.event.get_events": "nce_sync.event.get_events"
 # }
 #
 # each overriding function accepts a `data` argument;
 # generated from the base implementation of the doctype dashboard,
 # along with any modifications made in other Frappe apps
 # override_doctype_dashboards = {
-# 	"Task": "base_app.task.get_dashboard_data"
+# 	"Task": "nce_sync.task.get_dashboard_data"
 # }
 
 # exempt linked doctypes from being automatically cancelled
@@ -199,13 +199,13 @@ app_license = "mit"
 
 # Request Events
 # ----------------
-# before_request = ["base_app.utils.before_request"]
-# after_request = ["base_app.utils.after_request"]
+# before_request = ["nce_sync.utils.before_request"]
+# after_request = ["nce_sync.utils.after_request"]
 
 # Job Events
 # ----------
-# before_job = ["base_app.utils.before_job"]
-# after_job = ["base_app.utils.after_job"]
+# before_job = ["nce_sync.utils.before_job"]
+# after_job = ["nce_sync.utils.after_job"]
 
 # User Data Protection
 # --------------------
@@ -235,7 +235,7 @@ app_license = "mit"
 # --------------------------------
 
 # auth_hooks = [
-# 	"base_app.auth.validate"
+# 	"nce_sync.auth.validate"
 # ]
 
 # Automatically update python controller files with type annotations for this app.

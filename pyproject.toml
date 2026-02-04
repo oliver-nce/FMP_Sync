@@ -1,5 +1,5 @@
 [project]
-name = "base_app"
+name = "nce_sync"
 authors = [
     { name = "Oliver Reid", email = "oreid@firstgm.com"}
 ]

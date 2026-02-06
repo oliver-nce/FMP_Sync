@@ -1,7 +1,7 @@
 {
  "app": "nce_sync",
  "charts": [],
- "content": "[{\"id\":\"discover_shortcut\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Discover WordPress Tables\",\"col\":4}},{\"id\":\"wp_conn_shortcut\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"WordPress Connection\",\"col\":4}},{\"id\":\"wp_tables_shortcut\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"WP Tables\",\"col\":4}}]",
+ "content": "[{\"id\":\"wp_conn_shortcut\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"WordPress Connection\",\"col\":4}},{\"id\":\"wp_tables_shortcut\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"WP Tables\",\"col\":4}}]",
  "creation": "2026-02-06 00:00:00.000000",
  "custom_blocks": [],
  "docstatus": 0,
@@ -57,14 +57,6 @@
  "roles": [],
  "sequence_id": 20.0,
  "shortcuts": [
-  {
-   "color": "Green",
-   "doc_view": "",
-   "label": "Discover WordPress Tables",
-   "link_to": "WordPress Connection",
-   "stats_filter": "[]",
-   "type": "DocType"
-  },
   {
    "color": "Blue",
    "doc_view": "",

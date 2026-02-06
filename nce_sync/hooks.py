@@ -1,7 +1,7 @@
 app_name = "nce_sync"
 app_title = "NCE Sync"
 app_publisher = "Oliver Reid"
-app_description = For syncing WP tables and Frappe"
+app_description = "For syncing WP tables and Frappe"
 app_email = "oreid@firstgm.com"
 app_license = "mit"
 
@@ -249,4 +249,3 @@ app_license = "mit"
 # ------------
 # List of apps whose translatable strings should be excluded from this app's translations.
 # ignore_translatable_strings_from = []
-

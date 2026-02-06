@@ -1,0 +1,144 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "field:table_name",
+ "creation": "2026-02-06 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "table_info_section",
+  "table_name",
+  "table_type",
+  "nce_name",
+  "column_break_1",
+  "modified_timestamp_field",
+  "created_timestamp_field",
+  "sync_settings_section",
+  "sync_direction",
+  "sync_method",
+  "generated_doctype_section",
+  "frappe_doctype",
+  "mirror_status",
+  "error_log"
+ ],
+ "fields": [
+  {
+   "fieldname": "table_info_section",
+   "fieldtype": "Section Break",
+   "label": "Table Information"
+  },
+  {
+   "fieldname": "table_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Table Name",
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "table_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Table Type",
+   "options": "Table\nView",
+   "reqd": 1
+  },
+  {
+   "fieldname": "nce_name",
+   "fieldtype": "Data",
+   "label": "NCE Name",
+   "description": "Optional custom name for the generated Frappe DocType. If blank, uses table_name."
+  },
+  {
+   "fieldname": "column_break_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "modified_timestamp_field",
+   "fieldtype": "Data",
+   "label": "Modified Timestamp Field",
+   "description": "Auto-detected or manually entered"
+  },
+  {
+   "fieldname": "created_timestamp_field",
+   "fieldtype": "Data",
+   "label": "Created Timestamp Field",
+   "description": "Auto-detected or manually entered"
+  },
+  {
+   "fieldname": "sync_settings_section",
+   "fieldtype": "Section Break",
+   "label": "Sync Settings"
+  },
+  {
+   "fieldname": "sync_direction",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Sync Direction",
+   "options": "WP to Frappe\nFrappe to WP\nBoth",
+   "default": "WP to Frappe"
+  },
+  {
+   "fieldname": "sync_method",
+   "fieldtype": "Select",
+   "label": "Sync Method",
+   "options": "TS Compare\nTruncate & Replace",
+   "default": "TS Compare",
+   "depends_on": "eval:doc.sync_direction=='WP to Frappe'",
+   "description": "Metadata only in Phase 1"
+  },
+  {
+   "fieldname": "generated_doctype_section",
+   "fieldtype": "Section Break",
+   "label": "Generated DocType",
+   "collapsible": 1
+  },
+  {
+   "fieldname": "frappe_doctype",
+   "fieldtype": "Data",
+   "label": "Frappe DocType Name",
+   "read_only": 1
+  },
+  {
+   "fieldname": "mirror_status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Mirror Status",
+   "options": "Pending\nMirrored\nError",
+   "default": "Pending",
+   "read_only": 1
+  },
+  {
+   "fieldname": "error_log",
+   "fieldtype": "Small Text",
+   "label": "Error Log",
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-02-06 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "NCE Sync",
+ "name": "WP Tables",
+ "naming_rule": "By fieldname",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

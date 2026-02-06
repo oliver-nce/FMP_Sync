@@ -2,59 +2,33 @@
 # For license information, please see license.txt
 
 """
-Workspace management utilities for NCE_Sync.
-Handles workspace creation and DocType shortcut card management.
+Workspace utilities for NCE_Sync.
+Adds dynamically mirrored DocTypes as shortcut cards to the NCE Sync workspace.
 """
 
 import json
 
 import frappe
-from frappe import _
-
-
-def ensure_workspace():
-	"""
-	Ensure the NCE Sync workspace exists.
-	Creates it if it doesn't exist, returns it if it does.
-
-	Returns:
-		Workspace document
-	"""
-	workspace_name = "NCE Sync"
-
-	if frappe.db.exists("Workspace", workspace_name):
-		return frappe.get_doc("Workspace", workspace_name)
-
-	# Create new workspace
-	workspace = frappe.get_doc(
-		{
-			"doctype": "Workspace",
-			"name": workspace_name,
-			"title": workspace_name,
-			"module": "NCE Sync",
-			"icon": "database",
-			"is_standard": 0,
-			"public": 1,
-			"content": json.dumps([]),  # Empty content initially
-			"links": [],  # Empty links - this keeps DocTypes out of sidebar/magic menu
-		}
-	)
-
-	workspace.insert(ignore_permissions=True)
-	frappe.db.commit()
-
-	return workspace
 
 
 def add_to_workspace(doctype_name, label=None):
 	"""
-	Add a DocType as a shortcut card to the NCE Sync workspace page content.
+	Add a mirrored DocType as a shortcut card to the NCE Sync workspace content.
+
+	Added to content (shortcut cards) only — NOT to links — so that
+	mirrored DocTypes appear on the workspace page but do NOT appear
+	in the magic menu / awesomebar.
 
 	Args:
 		doctype_name: Name of the DocType
 		label: Optional custom label (defaults to doctype_name)
 	"""
-	workspace = ensure_workspace()
+	workspace_name = "NCE Sync"
+
+	if not frappe.db.exists("Workspace", workspace_name):
+		return  # Workspace not yet installed; will be created by bench migrate
+
+	workspace = frappe.get_doc("Workspace", workspace_name)
 
 	# Parse existing content
 	try:
@@ -62,41 +36,39 @@ def add_to_workspace(doctype_name, label=None):
 	except json.JSONDecodeError:
 		content = []
 
-	# Check if already exists
+	# Check if shortcut already exists for this DocType
 	for item in content:
-		if item.get("type") == "shortcut" and item.get("link_to") == doctype_name:
+		if item.get("type") == "shortcut" and item.get("data", {}).get("shortcut_name") == doctype_name:
 			return  # Already exists
 
-	# Add new shortcut card
-	shortcut = {
+	# Add new shortcut card entry to content
+	shortcut_entry = {
+		"id": frappe.generate_hash(length=10),
 		"type": "shortcut",
-		"label": label or doctype_name,
-		"link_to": doctype_name,
-		"link_type": "DocType",
-		"color": "blue",
+		"data": {
+			"shortcut_name": doctype_name,
+			"col": 4,
+		},
 	}
+	content.append(shortcut_entry)
 
-	content.append(shortcut)
+	# Also add to the shortcuts child table (needed for content shortcut references)
+	workspace.append(
+		"shortcuts",
+		{
+			"label": label or doctype_name,
+			"link_to": doctype_name,
+			"type": "DocType",
+			"doc_view": "List",
+			"color": "Grey",
+			"stats_filter": "[]",
+		},
+	)
 
-	# Update workspace
+	# Update workspace content
 	workspace.content = json.dumps(content)
 	workspace.save(ignore_permissions=True)
 	frappe.db.commit()
 
-	# Clear cache
+	# Clear cache so changes are immediately visible
 	frappe.clear_cache()
-
-
-def initialize_workspace_on_install():
-	"""
-	Called after app installation.
-	Creates the NCE Sync workspace and adds core DocTypes.
-	"""
-	# Ensure workspace exists
-	ensure_workspace()
-
-	# Add core app DocTypes to workspace
-	add_to_workspace("WordPress Connection")
-	add_to_workspace("WP Tables")
-
-	frappe.msgprint(_("NCE Sync workspace created successfully"), indicator="green")

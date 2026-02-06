@@ -86,7 +86,7 @@ app_license = "mit"
 # ------------
 
 # before_install = "nce_sync.install.before_install"
-after_install = "nce_sync.utils.workspace_utils.initialize_workspace_on_install"
+# after_install = "nce_sync.install.after_install"
 
 # Uninstallation
 # ------------

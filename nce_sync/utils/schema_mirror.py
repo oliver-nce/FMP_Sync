@@ -338,13 +338,67 @@ def map_mariadb_to_frappe_type(column):
 		return {"fieldtype": "Data"}
 
 
-def mirror_table_schema(wp_conn_doc, wp_table_doc):
+def preview_table_schema(wp_conn_doc, wp_table_doc):
+	"""
+	Introspect a WordPress table and return proposed field mappings
+	for user review before creating the DocType.
+
+	Args:
+		wp_conn_doc: WordPress Connection document
+		wp_table_doc: WP Tables document
+
+	Returns:
+		List of dicts with column_name, db_type, proposed_fieldtype, label, etc.
+	"""
+	conn = get_wp_connection(wp_conn_doc)
+	table_name = wp_table_doc.table_name
+
+	schema = get_table_schema(conn, table_name)
+
+	# Auto-detect timestamp fields
+	timestamps = detect_timestamp_fields(conn, table_name)
+	conn.close()
+
+	preview = []
+	for col in schema["columns"]:
+		col_name = col["COLUMN_NAME"]
+		field_mapping = map_mariadb_to_frappe_type(col)
+
+		is_unique = any(col_name in uk for uk in schema["unique_keys"].values())
+		is_indexed = any(col_name in idx_cols for idx_cols in schema["indexes"].values())
+		is_pk = col_name in schema.get("primary_key", [])
+
+		preview.append(
+			{
+				"column_name": col_name,
+				"db_type": col["COLUMN_TYPE"],
+				"proposed_fieldtype": field_mapping["fieldtype"],
+				"label": col_name.replace("_", " ").title(),
+				"is_nullable": col["IS_NULLABLE"],
+				"is_primary_key": is_pk,
+				"is_unique": is_unique,
+				"is_indexed": is_indexed,
+				"length": field_mapping.get("length", 0),
+				"precision": field_mapping.get("precision", 0),
+				"options": field_mapping.get("options", ""),
+			}
+		)
+
+	return {
+		"fields": preview,
+		"timestamps": timestamps,
+		"doctype_name": wp_table_doc.nce_name or table_name,
+	}
+
+
+def mirror_table_schema(wp_conn_doc, wp_table_doc, field_overrides=None):
 	"""
 	Mirror a WordPress table schema to a Frappe Custom DocType.
 
 	Args:
 		wp_conn_doc: WordPress Connection document
 		wp_table_doc: WP Tables document
+		field_overrides: Optional dict of {column_name: fieldtype} from user review
 	"""
 	try:
 		# Connect to WordPress DB
@@ -375,10 +429,10 @@ def mirror_table_schema(wp_conn_doc, wp_table_doc):
 				_("DocType {0} already exists. Updating fields...").format(doctype_name),
 				indicator="orange",
 			)
-			update_existing_doctype(doctype_name, schema, wp_table_doc)
+			update_existing_doctype(doctype_name, schema, wp_table_doc, field_overrides)
 		else:
 			# Create new Custom DocType
-			create_custom_doctype(doctype_name, schema, wp_table_doc)
+			create_custom_doctype(doctype_name, schema, wp_table_doc, field_overrides)
 
 		# Update WP Tables record
 		wp_table_doc.frappe_doctype = doctype_name
@@ -399,7 +453,7 @@ def mirror_table_schema(wp_conn_doc, wp_table_doc):
 		raise
 
 
-def create_custom_doctype(doctype_name, schema, wp_table_doc):
+def create_custom_doctype(doctype_name, schema, wp_table_doc, field_overrides=None):
 	"""
 	Create a new Custom DocType programmatically.
 
@@ -407,6 +461,7 @@ def create_custom_doctype(doctype_name, schema, wp_table_doc):
 		doctype_name: Name for the new DocType
 		schema: Schema dict from get_table_schema
 		wp_table_doc: WP Tables document
+		field_overrides: Optional dict of {column_name: fieldtype} from user review
 	"""
 	# Determine naming rule
 	autoname = "hash"  # Default
@@ -426,6 +481,10 @@ def create_custom_doctype(doctype_name, schema, wp_table_doc):
 	for col in schema["columns"]:
 		col_name = col["COLUMN_NAME"]
 		field_mapping = map_mariadb_to_frappe_type(col)
+
+		# Apply user override if provided
+		if field_overrides and col_name in field_overrides:
+			field_mapping["fieldtype"] = field_overrides[col_name]
 
 		field = {
 			"fieldname": col_name,
@@ -483,7 +542,7 @@ def create_custom_doctype(doctype_name, schema, wp_table_doc):
 	frappe.db.commit()
 
 
-def update_existing_doctype(doctype_name, schema, wp_table_doc):
+def update_existing_doctype(doctype_name, schema, wp_table_doc, field_overrides=None):
 	"""
 	Update an existing DocType with new fields from schema.
 	Adds missing fields without removing existing ones.
@@ -492,6 +551,7 @@ def update_existing_doctype(doctype_name, schema, wp_table_doc):
 		doctype_name: Name of the existing DocType
 		schema: Schema dict from get_table_schema
 		wp_table_doc: WP Tables document
+		field_overrides: Optional dict of {column_name: fieldtype} from user review
 	"""
 	doctype_doc = frappe.get_doc("DocType", doctype_name)
 
@@ -507,6 +567,10 @@ def update_existing_doctype(doctype_name, schema, wp_table_doc):
 
 		if col_name not in existing_fields:
 			field_mapping = map_mariadb_to_frappe_type(col)
+
+			# Apply user override if provided
+			if field_overrides and col_name in field_overrides:
+				field_mapping["fieldtype"] = field_overrides[col_name]
 
 			field = {
 				"fieldname": col_name,

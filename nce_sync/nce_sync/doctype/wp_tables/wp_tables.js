@@ -85,7 +85,7 @@ frappe.ui.form.on("WP Tables", {
 								freeze: true,
 								freeze_message: __("Removing table..."),
 								callback: function () {
-									frappe.set_route("Workspace", "NCE Sync");
+									window.location.href = "/app/nce-sync";
 								},
 							});
 						}
@@ -140,7 +140,7 @@ function show_preview_dialog(frm, preview_data) {
 				freeze: true,
 				freeze_message: __("Creating DocType..."),
 				callback: function (r) {
-					frappe.set_route("Workspace", "NCE Sync");
+					window.location.href = "/app/nce-sync";
 				},
 			});
 		},

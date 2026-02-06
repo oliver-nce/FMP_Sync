@@ -11,18 +11,36 @@ class WordPressConnection(Document):
 
 	@frappe.whitelist()
 	def test_connection(self):
-		"""Test the WordPress database connection."""
+		"""Test the WordPress database connection and detect timezone."""
 		try:
 			from nce_sync.utils.schema_mirror import get_wp_connection
 
 			# Attempt connection
 			conn = get_wp_connection(self)
 			if conn:
+				# Detect WordPress DB timezone
+				cursor = conn.cursor()
+				cursor.execute("SELECT @@global.time_zone AS tz")
+				row = cursor.fetchone()
+				wp_tz = row["tz"] if row else "SYSTEM"
+
+				# If DB reports SYSTEM, try to get the system timezone
+				if wp_tz == "SYSTEM":
+					cursor.execute("SELECT @@system_time_zone AS stz")
+					sys_row = cursor.fetchone()
+					wp_tz = sys_row["stz"] if sys_row else "SYSTEM"
+
+				cursor.close()
 				conn.close()
+
+				self.wp_timezone = wp_tz
 				self.connection_status = "Connected"
-				self.connection_message = _("Successfully connected to WordPress database.")
+				self.connection_message = _("Successfully connected. DB timezone: {0}").format(wp_tz)
 				self.save()
-				frappe.msgprint(_("Connection successful!"), indicator="green")
+				frappe.msgprint(
+					_("Connection successful! DB timezone: {0}").format(wp_tz),
+					indicator="green",
+				)
 			else:
 				raise Exception(_("Unable to establish connection"))
 

@@ -23,10 +23,12 @@ const FRAPPE_FIELD_TYPES = [
 
 frappe.ui.form.on("WP Tables", {
 	refresh: function (frm) {
-		// Mirror Schema button
-		if (!frm.is_new()) {
-			frm.add_custom_button(__("Mirror Schema"), function () {
-				// Step 1: Preview schema first
+		if (frm.is_new()) return;
+
+		// Mirror Schema button — always available
+		frm.add_custom_button(
+			__("Mirror Schema"),
+			function () {
 				frappe.call({
 					method: "preview_schema",
 					doc: frm.doc,
@@ -38,7 +40,59 @@ frappe.ui.form.on("WP Tables", {
 						}
 					},
 				});
-			});
+			},
+			__("Actions")
+		);
+
+		// Only show cleanup buttons when a mirror exists
+		if (frm.doc.mirror_status === "Mirrored" && frm.doc.frappe_doctype) {
+			frm.add_custom_button(
+				__("Re-mirror"),
+				function () {
+					frappe.confirm(
+						__(
+							"This will delete the DocType '{0}' and remove it from the workspace. You can then mirror again with different settings. Continue?",
+							[frm.doc.frappe_doctype]
+						),
+						function () {
+							frappe.call({
+								method: "delete_mirror",
+								doc: frm.doc,
+								freeze: true,
+								freeze_message: __("Deleting mirror..."),
+								callback: function () {
+									frm.reload_doc();
+								},
+							});
+						}
+					);
+				},
+				__("Actions")
+			);
+
+			frm.add_custom_button(
+				__("Remove Table"),
+				function () {
+					frappe.confirm(
+						__(
+							"This will permanently delete the DocType '{0}', remove it from the workspace, and delete this WP Tables entry. This cannot be undone. Continue?",
+							[frm.doc.frappe_doctype]
+						),
+						function () {
+							frappe.call({
+								method: "remove_table",
+								doc: frm.doc,
+								freeze: true,
+								freeze_message: __("Removing table..."),
+								callback: function () {
+									frappe.set_route("Workspace", "NCE Sync");
+								},
+							});
+						}
+					);
+				},
+				__("Actions")
+			);
 		}
 	},
 });

@@ -12,6 +12,7 @@
   "column_break_1",
   "username",
   "password",
+  "wp_timezone",
   "connection_status_section",
   "connection_status",
   "connection_message"
@@ -58,6 +59,13 @@
    "fieldtype": "Password",
    "label": "Password",
    "reqd": 1
+  },
+  {
+   "fieldname": "wp_timezone",
+   "fieldtype": "Data",
+   "label": "WordPress DB Timezone",
+   "read_only": 1,
+   "description": "Auto-detected from the WordPress database during Test Connection (e.g. UTC, +05:30, -05:00)"
   },
   {
    "fieldname": "connection_status_section",

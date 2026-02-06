@@ -14,7 +14,6 @@ class WPTables(Document):
 	def validate(self):
 		"""Validate and enforce source-of-truth hierarchy."""
 		# Source-of-truth: User values > Auto-detected > Defaults
-		# Never overwrite user-entered values with auto-detection
 		pass
 
 	@frappe.whitelist()
@@ -34,16 +33,13 @@ class WPTables(Document):
 		try:
 			from nce_sync.utils.schema_mirror import mirror_table_schema
 
-			# Parse field_overrides if passed as JSON string
 			if field_overrides and isinstance(field_overrides, str):
 				field_overrides = json.loads(field_overrides)
 
-			# Get WordPress Connection
 			wp_conn = frappe.get_single("WordPress Connection")
 			if not wp_conn:
 				frappe.throw(_("WordPress Connection not configured"))
 
-			# Mirror this table with optional field overrides
 			mirror_table_schema(wp_conn, self, field_overrides=field_overrides)
 
 			frappe.msgprint(
@@ -57,3 +53,62 @@ class WPTables(Document):
 			self.save()
 			frappe.log_error(title=f"Mirror Error: {self.table_name}", message=str(e))
 			frappe.throw(_("Failed to mirror table: {0}").format(str(e)))
+
+	@frappe.whitelist()
+	def delete_mirror(self):
+		"""
+		Delete the generated DocType and remove from workspace.
+		Resets this WP Tables entry back to Pending so it can be re-mirrored.
+		"""
+		from nce_sync.utils.workspace_utils import remove_from_workspace
+
+		doctype_name = self.frappe_doctype
+		if not doctype_name:
+			frappe.throw(_("No mirrored DocType to delete"))
+
+		# Remove from workspace first
+		remove_from_workspace(doctype_name)
+
+		# Delete the generated DocType
+		if frappe.db.exists("DocType", doctype_name):
+			frappe.delete_doc("DocType", doctype_name, force=True, ignore_permissions=True)
+			frappe.db.commit()
+
+		# Reset this WP Tables entry
+		self.frappe_doctype = None
+		self.mirror_status = "Pending"
+		self.error_log = None
+		self.save()
+
+		frappe.msgprint(
+			_("Deleted DocType '{0}' and removed from workspace. Ready to re-mirror.").format(doctype_name),
+			indicator="green",
+		)
+
+	@frappe.whitelist()
+	def remove_table(self):
+		"""
+		Full cleanup: delete the generated DocType, remove from workspace,
+		and delete this WP Tables record itself.
+		"""
+		from nce_sync.utils.workspace_utils import remove_from_workspace
+
+		doctype_name = self.frappe_doctype
+
+		# Remove from workspace
+		if doctype_name:
+			remove_from_workspace(doctype_name)
+
+			# Delete the generated DocType
+			if frappe.db.exists("DocType", doctype_name):
+				frappe.delete_doc("DocType", doctype_name, force=True, ignore_permissions=True)
+
+		# Delete this WP Tables record
+		table_name = self.table_name
+		frappe.delete_doc("WP Tables", self.name, force=True, ignore_permissions=True)
+		frappe.db.commit()
+
+		frappe.msgprint(
+			_("Removed table '{0}' and all associated data.").format(table_name),
+			indicator="green",
+		)

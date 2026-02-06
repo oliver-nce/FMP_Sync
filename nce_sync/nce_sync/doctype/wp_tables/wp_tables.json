@@ -16,6 +16,7 @@
   "sync_settings_section",
   "sync_direction",
   "sync_method",
+  "sync_frequency",
   "generated_doctype_section",
   "frappe_doctype",
   "mirror_status",
@@ -86,6 +87,13 @@
    "default": "TS Compare",
    "depends_on": "eval:doc.sync_direction=='WP to Frappe'",
    "description": "Metadata only in Phase 1"
+  },
+  {
+   "fieldname": "sync_frequency",
+   "fieldtype": "Int",
+   "label": "Sync Frequency (minutes)",
+   "default": "60",
+   "description": "How often to sync this table, in minutes"
   },
   {
    "fieldname": "generated_doctype_section",

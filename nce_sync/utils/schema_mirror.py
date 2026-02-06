@@ -10,6 +10,8 @@ import frappe
 import pymysql
 from frappe import _
 
+from nce_sync.utils.workspace_utils import add_to_workspace
+
 
 def get_wp_connection(wp_conn_doc):
 	"""
@@ -383,6 +385,9 @@ def mirror_table_schema(wp_conn_doc, wp_table_doc):
 		wp_table_doc.mirror_status = "Mirrored"
 		wp_table_doc.error_log = None
 		wp_table_doc.save()
+
+		# Add to workspace
+		add_to_workspace(doctype_name, label=wp_table_doc.nce_name or doctype_name)
 
 		frappe.db.commit()
 

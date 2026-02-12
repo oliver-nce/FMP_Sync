@@ -12,6 +12,112 @@ from frappe import _
 
 from nce_sync.utils.workspace_utils import add_to_workspace
 
+# Frappe reserved fieldnames - cannot be used as custom field names
+# These are system fields used internally by Frappe
+RESTRICTED_FIELDNAMES = (
+	"name",
+	"parent",
+	"creation",
+	"owner",
+	"modified",
+	"modified_by",
+	"parentfield",
+	"parenttype",
+	"file_list",
+	"flags",
+	"docstatus",
+)
+
+
+def sanitize_fieldname(fieldname):
+	"""
+	Sanitize a fieldname to avoid Frappe restricted names.
+
+	Args:
+		fieldname: Original fieldname (lowercase)
+
+	Returns:
+		Safe fieldname (appends '_field' if restricted)
+	"""
+	if fieldname.lower() in RESTRICTED_FIELDNAMES:
+		return f"{fieldname}_field"
+	return fieldname
+
+
+def get_matching_fields_list(wp_table_doc):
+	"""
+	Parse matching_fields from WP Tables document into a list.
+
+	Args:
+		wp_table_doc: WP Tables document
+
+	Returns:
+		List of matching field column names
+	"""
+	if not wp_table_doc.matching_fields:
+		return []
+	return [f.strip() for f in wp_table_doc.matching_fields.split(",") if f.strip()]
+
+
+def build_frappe_field(col, schema, wp_table_doc, field_overrides=None, label_overrides=None, idx=1):
+	"""
+	Build a Frappe field dict from a WordPress column definition.
+
+	Args:
+		col: Column dict from schema['columns']
+		schema: Full schema dict (for unique_keys, indexes)
+		wp_table_doc: WP Tables document (for timestamp fields)
+		field_overrides: Optional dict of {column_name: fieldtype}
+		label_overrides: Optional dict of {column_name: label}
+		idx: Field index
+
+	Returns:
+		Dict suitable for DocType field definition
+	"""
+	col_name = col["COLUMN_NAME"]
+	safe_fieldname = sanitize_fieldname(col_name.lower())
+	field_mapping = map_mariadb_to_frappe_type(col)
+
+	# Apply user override if provided
+	if field_overrides and col_name in field_overrides:
+		field_mapping["fieldtype"] = field_overrides[col_name]
+
+	# Use label override if provided, otherwise generate from column name
+	label = col_name.replace("_", " ").title()
+	if label_overrides and col_name in label_overrides:
+		label = label_overrides[col_name]
+
+	field = {
+		"fieldname": safe_fieldname,
+		"fieldtype": field_mapping["fieldtype"],
+		"label": label,
+		"reqd": 1 if col["IS_NULLABLE"] == "NO" else 0,
+		"idx": idx,
+	}
+
+	# Add type-specific properties
+	if "length" in field_mapping:
+		field["length"] = field_mapping["length"]
+	if "precision" in field_mapping:
+		field["precision"] = field_mapping["precision"]
+	if "options" in field_mapping:
+		field["options"] = field_mapping["options"]
+
+	# Mark unique columns (only from actual DB unique constraints)
+	if any(col_name in uk for uk in schema["unique_keys"].values()):
+		field["unique"] = 1
+
+	# Mark indexed columns (from DB indexes OR matching fields OR timestamp fields)
+	matching_fields = get_matching_fields_list(wp_table_doc)
+	is_indexed = any(col_name in idx_cols for idx_cols in schema["indexes"].values())
+	is_matching = col_name in matching_fields
+	is_timestamp = col_name in (wp_table_doc.modified_timestamp_field, wp_table_doc.created_timestamp_field)
+
+	if is_indexed or is_matching or is_timestamp:
+		field["search_index"] = 1
+
+	return field
+
 
 def get_wp_connection(wp_conn_doc):
 	"""
@@ -164,7 +270,7 @@ def get_table_schema(conn, table_name):
 	try:
 		cursor = conn.cursor()
 
-		# Get columns
+		# Get columns (including GENERATION_EXPRESSION for virtual/computed columns)
 		query = """
 			SELECT
 				COLUMN_NAME,
@@ -175,7 +281,8 @@ def get_table_schema(conn, table_name):
 				IS_NULLABLE,
 				COLUMN_DEFAULT,
 				EXTRA,
-				COLUMN_TYPE
+				COLUMN_TYPE,
+				GENERATION_EXPRESSION
 			FROM information_schema.COLUMNS
 			WHERE TABLE_SCHEMA = DATABASE()
 			AND TABLE_NAME = %s
@@ -266,8 +373,10 @@ def map_mariadb_to_frappe_type(column):
 	max_length = column["CHARACTER_MAXIMUM_LENGTH"]
 
 	# VARCHAR
+	# Frappe Data fields default to 140 chars, but can be longer
+	# Use Data for varchar up to 255 (single-line input), Small Text only for longer
 	if data_type == "varchar":
-		if max_length and max_length <= 140:
+		if max_length and max_length <= 255:
 			return {"fieldtype": "Data", "length": max_length}
 		else:
 			return {"fieldtype": "Small Text"}
@@ -343,13 +452,18 @@ def preview_table_schema(wp_conn_doc, wp_table_doc):
 	Introspect a WordPress table and return proposed field mappings
 	for user review before creating the DocType.
 
+	Always fetches fresh schema from WordPress to detect any column changes.
+	Restores previous user selections (matching fields) if available.
+
 	Args:
 		wp_conn_doc: WordPress Connection document
 		wp_table_doc: WP Tables document
 
 	Returns:
-		List of dicts with column_name, db_type, proposed_fieldtype, label, etc.
+		Dict with fields, timestamps, doctype_name, and previous_matching_fields
 	"""
+	import json
+
 	conn = get_wp_connection(wp_conn_doc)
 	table_name = wp_table_doc.table_name
 
@@ -359,6 +473,11 @@ def preview_table_schema(wp_conn_doc, wp_table_doc):
 	timestamps = detect_timestamp_fields(conn, table_name)
 	conn.close()
 
+	# Get previously selected matching fields
+	previous_matching = []
+	if wp_table_doc.matching_fields:
+		previous_matching = [f.strip() for f in wp_table_doc.matching_fields.split(",") if f.strip()]
+
 	preview = []
 	for col in schema["columns"]:
 		col_name = col["COLUMN_NAME"]
@@ -367,6 +486,10 @@ def preview_table_schema(wp_conn_doc, wp_table_doc):
 		is_unique = any(col_name in uk for uk in schema["unique_keys"].values())
 		is_indexed = any(col_name in idx_cols for idx_cols in schema["indexes"].values())
 		is_pk = col_name in schema.get("primary_key", [])
+
+		# Check if this is a virtual/generated column
+		extra = col.get("EXTRA", "") or ""
+		is_virtual = "VIRTUAL" in extra.upper() or "GENERATED" in extra.upper()
 
 		preview.append(
 			{
@@ -378,6 +501,7 @@ def preview_table_schema(wp_conn_doc, wp_table_doc):
 				"is_primary_key": is_pk,
 				"is_unique": is_unique,
 				"is_indexed": is_indexed,
+				"is_virtual": is_virtual,
 				"length": field_mapping.get("length", 0),
 				"precision": field_mapping.get("precision", 0),
 				"options": field_mapping.get("options", ""),
@@ -388,10 +512,11 @@ def preview_table_schema(wp_conn_doc, wp_table_doc):
 		"fields": preview,
 		"timestamps": timestamps,
 		"doctype_name": wp_table_doc.nce_name or table_name,
+		"previous_matching_fields": previous_matching,
 	}
 
 
-def mirror_table_schema(wp_conn_doc, wp_table_doc, field_overrides=None):
+def mirror_table_schema(wp_conn_doc, wp_table_doc, field_overrides=None, label_overrides=None):
 	"""
 	Mirror a WordPress table schema to a Frappe Custom DocType.
 
@@ -399,6 +524,7 @@ def mirror_table_schema(wp_conn_doc, wp_table_doc, field_overrides=None):
 		wp_conn_doc: WordPress Connection document
 		wp_table_doc: WP Tables document
 		field_overrides: Optional dict of {column_name: fieldtype} from user review
+		label_overrides: Optional dict of {column_name: label} from user review
 	"""
 	try:
 		# Connect to WordPress DB
@@ -429,15 +555,56 @@ def mirror_table_schema(wp_conn_doc, wp_table_doc, field_overrides=None):
 				_("DocType {0} already exists. Updating fields...").format(doctype_name),
 				indicator="orange",
 			)
-			update_existing_doctype(doctype_name, schema, wp_table_doc, field_overrides)
+			try:
+				update_existing_doctype(doctype_name, schema, wp_table_doc, field_overrides, label_overrides)
+			except Exception as update_error:
+				# If update fails (e.g., duplicate field error), try deleting and recreating
+				if "appears multiple times" in str(update_error):
+					frappe.log_error(
+						title=f"Recreating Broken DocType: {doctype_name}",
+						message=f"Update failed with duplicate field error. Deleting and recreating.\n\nError: {update_error!s}",
+					)
+					frappe.msgprint(
+						_("DocType {0} appears to be in a broken state. Deleting and recreating...").format(
+							doctype_name
+						),
+						indicator="orange",
+					)
+					# Delete the broken DocType
+					frappe.delete_doc("DocType", doctype_name, force=True, ignore_permissions=True)
+					frappe.db.commit()
+					# Recreate it
+					create_custom_doctype(
+						doctype_name, schema, wp_table_doc, field_overrides, label_overrides
+					)
+				else:
+					raise  # Re-raise if it's a different error
 		else:
 			# Create new Custom DocType
-			create_custom_doctype(doctype_name, schema, wp_table_doc, field_overrides)
+			create_custom_doctype(doctype_name, schema, wp_table_doc, field_overrides, label_overrides)
+
+		# Build column mapping: WP column name -> mapping info
+		# Frappe lowercases all fieldnames, so we need to track the original WP names
+		# Also track if column is virtual/generated (for reverse sync)
+		# Sanitize restricted fieldnames (e.g., 'name' -> 'name_field')
+		import json
+
+		column_mapping = {}
+		for col in schema["columns"]:
+			wp_col_name = col["COLUMN_NAME"]
+			frappe_fieldname = sanitize_fieldname(wp_col_name.lower())
+			extra = col.get("EXTRA", "") or ""
+			is_virtual = "VIRTUAL" in extra.upper() or "GENERATED" in extra.upper()
+			column_mapping[wp_col_name] = {
+				"fieldname": frappe_fieldname,
+				"is_virtual": is_virtual,
+			}
 
 		# Update WP Tables record
 		wp_table_doc.frappe_doctype = doctype_name
 		wp_table_doc.mirror_status = "Mirrored"
 		wp_table_doc.error_log = None
+		wp_table_doc.column_mapping = json.dumps(column_mapping)
 		wp_table_doc.save()
 
 		# Add to workspace
@@ -453,7 +620,7 @@ def mirror_table_schema(wp_conn_doc, wp_table_doc, field_overrides=None):
 		raise
 
 
-def create_custom_doctype(doctype_name, schema, wp_table_doc, field_overrides=None):
+def create_custom_doctype(doctype_name, schema, wp_table_doc, field_overrides=None, label_overrides=None):
 	"""
 	Create a new Custom DocType programmatically.
 
@@ -462,6 +629,7 @@ def create_custom_doctype(doctype_name, schema, wp_table_doc, field_overrides=No
 		schema: Schema dict from get_table_schema
 		wp_table_doc: WP Tables document
 		field_overrides: Optional dict of {column_name: fieldtype} from user review
+		label_overrides: Optional dict of {column_name: label} from user review
 	"""
 	# Determine naming rule
 	autoname = "hash"  # Default
@@ -474,44 +642,11 @@ def create_custom_doctype(doctype_name, schema, wp_table_doc, field_overrides=No
 		if pk_col and "auto_increment" in (pk_col.get("EXTRA") or "").lower():
 			autoname = "autoincrement"
 
-	# Build fields
+	# Build fields using shared helper
 	fields = []
-	idx = 1
-
-	for col in schema["columns"]:
-		col_name = col["COLUMN_NAME"]
-		field_mapping = map_mariadb_to_frappe_type(col)
-
-		# Apply user override if provided
-		if field_overrides and col_name in field_overrides:
-			field_mapping["fieldtype"] = field_overrides[col_name]
-
-		field = {
-			"fieldname": col_name,
-			"fieldtype": field_mapping["fieldtype"],
-			"label": col_name.replace("_", " ").title(),
-			"reqd": 1 if col["IS_NULLABLE"] == "NO" else 0,
-			"idx": idx,
-		}
-
-		# Add type-specific properties
-		if "length" in field_mapping:
-			field["length"] = field_mapping["length"]
-		if "precision" in field_mapping:
-			field["precision"] = field_mapping["precision"]
-		if "options" in field_mapping:
-			field["options"] = field_mapping["options"]
-
-		# Mark unique columns
-		if any(col_name in uk for uk in schema["unique_keys"].values()):
-			field["unique"] = 1
-
-		# Mark indexed columns
-		if any(col_name in idx_cols for idx_cols in schema["indexes"].values()):
-			field["search_index"] = 1
-
+	for idx, col in enumerate(schema["columns"], start=1):
+		field = build_frappe_field(col, schema, wp_table_doc, field_overrides, label_overrides, idx)
 		fields.append(field)
-		idx += 1
 
 	# Create DocType document
 	doctype_doc = frappe.get_doc(
@@ -542,7 +677,7 @@ def create_custom_doctype(doctype_name, schema, wp_table_doc, field_overrides=No
 	frappe.db.commit()
 
 
-def update_existing_doctype(doctype_name, schema, wp_table_doc, field_overrides=None):
+def update_existing_doctype(doctype_name, schema, wp_table_doc, field_overrides=None, label_overrides=None):
 	"""
 	Update an existing DocType with new fields from schema.
 	Adds missing fields without removing existing ones.
@@ -552,6 +687,7 @@ def update_existing_doctype(doctype_name, schema, wp_table_doc, field_overrides=
 		schema: Schema dict from get_table_schema
 		wp_table_doc: WP Tables document
 		field_overrides: Optional dict of {column_name: fieldtype} from user review
+		label_overrides: Optional dict of {column_name: label} from user review
 	"""
 	doctype_doc = frappe.get_doc("DocType", doctype_name)
 
@@ -564,38 +700,10 @@ def update_existing_doctype(doctype_name, schema, wp_table_doc, field_overrides=
 
 	for col in schema["columns"]:
 		col_name = col["COLUMN_NAME"]
+		safe_fieldname = sanitize_fieldname(col_name.lower())
 
-		if col_name not in existing_fields:
-			field_mapping = map_mariadb_to_frappe_type(col)
-
-			# Apply user override if provided
-			if field_overrides and col_name in field_overrides:
-				field_mapping["fieldtype"] = field_overrides[col_name]
-
-			field = {
-				"fieldname": col_name,
-				"fieldtype": field_mapping["fieldtype"],
-				"label": col_name.replace("_", " ").title(),
-				"reqd": 1 if col["IS_NULLABLE"] == "NO" else 0,
-				"idx": idx,
-			}
-
-			# Add type-specific properties
-			if "length" in field_mapping:
-				field["length"] = field_mapping["length"]
-			if "precision" in field_mapping:
-				field["precision"] = field_mapping["precision"]
-			if "options" in field_mapping:
-				field["options"] = field_mapping["options"]
-
-			# Mark unique columns
-			if any(col_name in uk for uk in schema["unique_keys"].values()):
-				field["unique"] = 1
-
-			# Mark indexed columns
-			if any(col_name in idx_cols for idx_cols in schema["indexes"].values()):
-				field["search_index"] = 1
-
+		if safe_fieldname not in existing_fields:
+			field = build_frappe_field(col, schema, wp_table_doc, field_overrides, label_overrides, idx)
 			doctype_doc.append("fields", field)
 			new_fields_added = True
 			idx += 1

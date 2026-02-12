@@ -1,0 +1,58 @@
+{
+ "actions": [],
+ "creation": "2026-02-11 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "enabled",
+  "wp_table",
+  "table_name",
+  "frappe_doctype"
+ ],
+ "fields": [
+  {
+   "default": "1",
+   "fieldname": "enabled",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Enabled"
+  },
+  {
+   "fieldname": "wp_table",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "WP Table",
+   "options": "WP Tables",
+   "reqd": 1
+  },
+  {
+   "fetch_from": "wp_table.table_name",
+   "fieldname": "table_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Table Name",
+   "read_only": 1
+  },
+  {
+   "fetch_from": "wp_table.frappe_doctype",
+   "fieldname": "frappe_doctype",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Frappe DocType",
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-02-11 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "NCE Sync",
+ "name": "Sync Table Selection",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

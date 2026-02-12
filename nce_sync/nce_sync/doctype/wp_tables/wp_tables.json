@@ -13,13 +13,21 @@
   "column_break_1",
   "modified_timestamp_field",
   "created_timestamp_field",
+  "matching_fields",
   "sync_settings_section",
   "sync_direction",
   "sync_method",
+  "column_break_sync",
   "sync_frequency",
+  "auto_sync_active",
+  "sync_status_section",
+  "last_synced",
+  "last_sync_status",
+  "last_sync_log",
   "generated_doctype_section",
   "frappe_doctype",
   "mirror_status",
+  "column_mapping",
   "error_log"
  ],
  "fields": [
@@ -67,6 +75,12 @@
    "description": "Auto-detected or manually entered"
   },
   {
+   "fieldname": "matching_fields",
+   "fieldtype": "Small Text",
+   "label": "Matching Fields",
+   "description": "Comma-separated list of up to 3 fields to use for matching records during sync (selected during Mirror Schema)"
+  },
+  {
    "fieldname": "sync_settings_section",
    "fieldtype": "Section Break",
    "label": "Sync Settings"
@@ -89,11 +103,50 @@
    "description": "Metadata only in Phase 1"
   },
   {
+   "fieldname": "column_break_sync",
+   "fieldtype": "Column Break"
+  },
+  {
    "fieldname": "sync_frequency",
    "fieldtype": "Int",
    "label": "Sync Frequency (minutes)",
    "default": "60",
    "description": "How often to sync this table, in minutes"
+  },
+  {
+   "fieldname": "auto_sync_active",
+   "fieldtype": "Select",
+   "label": "Auto Sync Active",
+   "options": "No\nYes",
+   "default": "No",
+   "description": "Enable scheduled automatic sync for this table"
+  },
+  {
+   "fieldname": "sync_status_section",
+   "fieldtype": "Section Break",
+   "label": "Sync Status",
+   "collapsible": 1
+  },
+  {
+   "fieldname": "last_synced",
+   "fieldtype": "Datetime",
+   "label": "Last Synced",
+   "read_only": 1,
+   "description": "Last successful sync timestamp (in Frappe server timezone)"
+  },
+  {
+   "fieldname": "last_sync_status",
+   "fieldtype": "Select",
+   "label": "Last Sync Status",
+   "options": "\nSuccess\nError\nRunning",
+   "read_only": 1
+  },
+  {
+   "fieldname": "last_sync_log",
+   "fieldtype": "Small Text",
+   "label": "Last Sync Log",
+   "read_only": 1,
+   "description": "Summary or error message from last sync"
   },
   {
    "fieldname": "generated_doctype_section",
@@ -106,6 +159,14 @@
    "fieldtype": "Data",
    "label": "Frappe DocType Name",
    "read_only": 1
+  },
+  {
+   "fieldname": "column_mapping",
+   "fieldtype": "JSON",
+   "label": "Column Mapping",
+   "read_only": 1,
+   "hidden": 1,
+   "description": "JSON mapping of WP column names to Frappe fieldnames"
   },
   {
    "fieldname": "mirror_status",

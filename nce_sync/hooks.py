@@ -143,23 +143,12 @@ app_license = "mit"
 # Scheduled Tasks
 # ---------------
 
-# scheduler_events = {
-# 	"all": [
-# 		"nce_sync.tasks.all"
-# 	],
-# 	"daily": [
-# 		"nce_sync.tasks.daily"
-# 	],
-# 	"hourly": [
-# 		"nce_sync.tasks.hourly"
-# 	],
-# 	"weekly": [
-# 		"nce_sync.tasks.weekly"
-# 	],
-# 	"monthly": [
-# 		"nce_sync.tasks.monthly"
-# 	],
-# }
+scheduler_events = {
+	"cron": {
+		# Run every 5 minutes to check for tables due for auto-sync
+		"*/5 * * * *": ["nce_sync.utils.data_sync.run_scheduled_syncs"]
+	}
+}
 
 # Testing
 # -------

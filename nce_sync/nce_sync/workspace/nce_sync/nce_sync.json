@@ -1,8 +1,8 @@
 {
  "app": "nce_sync",
  "charts": [],
- "content": "[{\"id\":\"wp_conn_shortcut\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"WordPress Connection\",\"col\":4}},{\"id\":\"wp_tables_shortcut\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"WP Tables\",\"col\":4}}]",
- "creation": "2026-02-06 00:00:00.000000",
+ "content": "[{\"id\": \"wp_conn_shortcut\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"WordPress Connection\", \"col\": 4}}, {\"id\": \"wp_tables_shortcut\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"WP Tables\", \"col\": 4}}, {\"id\": \"549ff78f01\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Registrations\", \"col\": 4}}, {\"id\": \"9e00a1ce3d\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Events\", \"col\": 4}}, {\"id\": \"b62793b226\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Event Sessions\", \"col\": 4}}, {\"id\": \"ff059ffe9d\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Families\", \"col\": 4}}, {\"id\": \"df184d65ac\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Family Members\", \"col\": 4}}, {\"id\": \"8bbf44b159\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Kaviyo Events Log\", \"col\": 4}}]",
+ "creation": "2026-02-06 00:00:00",
  "custom_blocks": [],
  "docstatus": 0,
  "doctype": "Workspace",
@@ -42,9 +42,19 @@
    "link_type": "DocType",
    "onboard": 0,
    "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Sync Manager",
+   "link_count": 0,
+   "link_to": "Sync Manager",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
   }
  ],
- "modified": "2026-02-06 00:00:00.000000",
+ "modified": "2026-02-12 18:16:16.938676",
  "modified_by": "Administrator",
  "module": "NCE Sync",
  "name": "NCE Sync",
@@ -70,6 +80,54 @@
    "doc_view": "List",
    "label": "WP Tables",
    "link_to": "WP Tables",
+   "stats_filter": "[]",
+   "type": "DocType"
+  },
+  {
+   "color": "Grey",
+   "doc_view": "List",
+   "label": "Registrations",
+   "link_to": "Registrations",
+   "stats_filter": "[]",
+   "type": "DocType"
+  },
+  {
+   "color": "Grey",
+   "doc_view": "List",
+   "label": "Events",
+   "link_to": "Events",
+   "stats_filter": "[]",
+   "type": "DocType"
+  },
+  {
+   "color": "Grey",
+   "doc_view": "List",
+   "label": "Event Sessions",
+   "link_to": "Event Sessions",
+   "stats_filter": "[]",
+   "type": "DocType"
+  },
+  {
+   "color": "Grey",
+   "doc_view": "List",
+   "label": "Families",
+   "link_to": "Families",
+   "stats_filter": "[]",
+   "type": "DocType"
+  },
+  {
+   "color": "Grey",
+   "doc_view": "List",
+   "label": "Family Members",
+   "link_to": "Family Members",
+   "stats_filter": "[]",
+   "type": "DocType"
+  },
+  {
+   "color": "Grey",
+   "doc_view": "List",
+   "label": "Kaviyo Events Log",
+   "link_to": "Kaviyo Events Log",
    "stats_filter": "[]",
    "type": "DocType"
   }

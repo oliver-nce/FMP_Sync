@@ -1,0 +1,116 @@
+{
+  "version": "frappe-v15",
+  "modules": {
+    "01_getting_started": {
+      "name": "Getting Started & Tutorial",
+      "pages_attempted": 14,
+      "pages_succeeded": 14,
+      "pages_failed": 0,
+      "chunks": 36,
+      "tokens": 14000
+    },
+    "02_core_concepts": {
+      "name": "Core Concepts & Architecture",
+      "pages_attempted": 11,
+      "pages_succeeded": 11,
+      "pages_failed": 0,
+      "chunks": 30,
+      "tokens": 12404
+    },
+    "03_doctype_system": {
+      "name": "DocType System",
+      "pages_attempted": 13,
+      "pages_succeeded": 13,
+      "pages_failed": 0,
+      "chunks": 25,
+      "tokens": 9919
+    },
+    "04_desk_ui": {
+      "name": "Desk, UI & Reports",
+      "pages_attempted": 19,
+      "pages_succeeded": 19,
+      "pages_failed": 0,
+      "chunks": 35,
+      "tokens": 11843
+    },
+    "05_js_client_api": {
+      "name": "JS Client API",
+      "pages_attempted": 12,
+      "pages_succeeded": 12,
+      "pages_failed": 0,
+      "chunks": 36,
+      "tokens": 13546
+    },
+    "06_python_api": {
+      "name": "Python API & Server-Side",
+      "pages_attempted": 15,
+      "pages_succeeded": 15,
+      "pages_failed": 0,
+      "chunks": 83,
+      "tokens": 30369
+    },
+    "07_portal_web": {
+      "name": "Portal, Web Forms & Public Pages",
+      "pages_attempted": 15,
+      "pages_succeeded": 15,
+      "pages_failed": 0,
+      "chunks": 21,
+      "tokens": 7425
+    },
+    "08_auth_integration": {
+      "name": "Authentication & Integration",
+      "pages_attempted": 18,
+      "pages_succeeded": 18,
+      "pages_failed": 0,
+      "chunks": 47,
+      "tokens": 16329
+    },
+    "09_bench_cli": {
+      "name": "Bench & CLI",
+      "pages_attempted": 30,
+      "pages_succeeded": 30,
+      "pages_failed": 0,
+      "chunks": 56,
+      "tokens": 19196
+    },
+    "10_deployment": {
+      "name": "Deployment & Production",
+      "pages_attempted": 11,
+      "pages_succeeded": 11,
+      "pages_failed": 0,
+      "chunks": 21,
+      "tokens": 6412
+    },
+    "11_testing_debugging": {
+      "name": "Testing, Debugging & Monitoring",
+      "pages_attempted": 9,
+      "pages_succeeded": 9,
+      "pages_failed": 0,
+      "chunks": 32,
+      "tokens": 12111
+    },
+    "12_guides_app_dev": {
+      "name": "Guides: App Development & Patterns",
+      "pages_attempted": 31,
+      "pages_succeeded": 31,
+      "pages_failed": 0,
+      "chunks": 43,
+      "tokens": 13355
+    },
+    "13_misc": {
+      "name": "Miscellaneous (Translations, Basics, Videos)",
+      "pages_attempted": 10,
+      "pages_succeeded": 10,
+      "pages_failed": 0,
+      "chunks": 21,
+      "tokens": 6637
+    }
+  },
+  "totals": {
+    "urls_attempted": 208,
+    "urls_succeeded": 208,
+    "urls_failed": 0,
+    "total_chunks": 486,
+    "total_tokens": 173546
+  }
+}

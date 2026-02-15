@@ -11,11 +11,29 @@ from frappe.model.document import Document
 class WPTables(Document):
 	"""Tracks WordPress tables selected for mirroring."""
 
+	def autoname(self):
+		"""Set document name from nce_name if provided, otherwise use table_name."""
+		self.name = self.nce_name or self.table_name
+
 	def validate(self):
 		"""Validate and enforce source-of-truth hierarchy."""
 		# Check if NCE Name conflicts with existing DocType
 		if self.nce_name:
 			self._validate_doctype_name(self.nce_name)
+
+		# Rename document if nce_name changed and differs from current name
+		desired_name = self.nce_name or self.table_name
+		if self.name and self.name != desired_name and not self.is_new():
+			self._rename_to(desired_name)
+
+	def _rename_to(self, new_name):
+		"""Rename this document to new_name."""
+		if frappe.db.exists("WP Tables", new_name):
+			frappe.throw(_("A WP Table with name '{0}' already exists").format(new_name))
+
+		# Use Frappe's rename_doc
+		frappe.rename_doc("WP Tables", self.name, new_name, force=True)
+		self.name = new_name
 
 	def _validate_doctype_name(self, name):
 		"""

@@ -164,7 +164,9 @@ frappe.ui.form.on("WP Tables", {
 								freeze: true,
 								freeze_message: __("Removing table..."),
 								callback: function () {
-									window.location.href = "/app/nce-sync";
+									// Clear local workspace cache and redirect
+									frappe.ui.toolbar.clear_cache();
+									window.location.href = "/app/nce-tables";
 								},
 							});
 						}
@@ -241,7 +243,7 @@ function show_preview_dialog(frm, preview_data) {
 				freeze_message: __("Creating DocType..."),
 				callback: function (r) {
 					d.hide();
-					window.location.href = "/app/nce-sync";
+					window.location.href = "/app/nce-tables";
 				},
 				error: function (r) {
 					// Re-enable button so the user can retry after fixing the issue

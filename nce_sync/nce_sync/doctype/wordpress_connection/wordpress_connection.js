@@ -42,7 +42,7 @@ frappe.ui.form.on("WordPress Connection", {
 						freeze: true,
 						freeze_message: __("Mirroring schemas..."),
 						callback: function (r) {
-							window.location.href = "/app/nce-sync";
+							window.location.href = "/app/nce-tables";
 						},
 					});
 				}

@@ -1,5 +1,5 @@
 app_name = "nce_sync"
-app_title = "NCE Sync"
+app_title = "NCE Tables"
 app_publisher = "Oliver Reid"
 app_description = "For syncing WP tables and Frappe"
 app_email = "oreid@firstgm.com"
@@ -26,7 +26,7 @@ app_license = "mit"
 
 # include js, css files in header of desk.html
 # app_include_css = "/assets/nce_sync/css/nce_sync.css"
-# app_include_js = "/assets/nce_sync/js/nce_sync.js"
+app_include_js = "/assets/nce_sync/js/list_auto_size.js"
 
 # include js, css files in header of web template
 # web_include_css = "/assets/nce_sync/css/nce_sync.css"
@@ -132,13 +132,12 @@ app_license = "mit"
 # ---------------
 # Hook on document methods and events
 
-# doc_events = {
-# 	"*": {
-# 		"on_update": "method",
-# 		"on_cancel": "method",
-# 		"on_trash": "method"
-# 	}
-# }
+doc_events = {
+	"DocType": {
+		"after_insert": "nce_sync.utils.workspace_utils.on_doctype_change",
+		"on_trash": "nce_sync.utils.workspace_utils.on_doctype_change"
+	}
+}
 
 # Scheduled Tasks
 # ---------------

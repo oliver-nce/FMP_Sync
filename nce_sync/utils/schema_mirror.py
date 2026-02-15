@@ -631,16 +631,16 @@ def create_custom_doctype(doctype_name, schema, wp_table_doc, field_overrides=No
 		field_overrides: Optional dict of {column_name: fieldtype} from user review
 		label_overrides: Optional dict of {column_name: label} from user review
 	"""
-	# Determine naming rule
-	autoname = "hash"  # Default
-	primary_key = schema.get("primary_key", [])
-	if len(primary_key) == 1:
-		pk_col = next(
-			(col for col in schema["columns"] if col["COLUMN_NAME"] == primary_key[0]),
-			None,
-		)
-		if pk_col and "auto_increment" in (pk_col.get("EXTRA") or "").lower():
-			autoname = "autoincrement"
+	# Determine naming rule based on matching fields
+	# Use the first matching field as the Frappe document name for cleaner IDs
+	autoname = "hash"  # Default fallback
+	matching_fields = get_matching_fields_list(wp_table_doc)
+
+	if matching_fields:
+		# Use the first matching field (typically the WP primary key) as the name
+		first_match_field = matching_fields[0]
+		safe_fieldname = sanitize_fieldname(first_match_field.lower())
+		autoname = f"field:{safe_fieldname}"
 
 	# Build fields using shared helper
 	fields = []
@@ -682,6 +682,10 @@ def update_existing_doctype(doctype_name, schema, wp_table_doc, field_overrides=
 	Update an existing DocType with new fields from schema.
 	Adds missing fields without removing existing ones.
 
+	Note: If the autoname setting changes (e.g., from hash to field:wp_id),
+	existing records will NOT be renamed. To apply new naming to all records,
+	delete the DocType and re-mirror, or manually rename records.
+
 	Args:
 		doctype_name: Name of the existing DocType
 		schema: Schema dict from get_table_schema
@@ -690,6 +694,21 @@ def update_existing_doctype(doctype_name, schema, wp_table_doc, field_overrides=
 		label_overrides: Optional dict of {column_name: label} from user review
 	"""
 	doctype_doc = frappe.get_doc("DocType", doctype_name)
+
+	# Update autoname if matching fields are set
+	matching_fields = get_matching_fields_list(wp_table_doc)
+	if matching_fields:
+		first_match_field = matching_fields[0]
+		safe_fieldname = sanitize_fieldname(first_match_field.lower())
+		new_autoname = f"field:{safe_fieldname}"
+		if doctype_doc.autoname != new_autoname:
+			doctype_doc.autoname = new_autoname
+			frappe.msgprint(
+				_("Updated naming rule to use {0}. Note: Existing records will keep their old names.").format(
+					first_match_field
+				),
+				indicator="orange",
+			)
 
 	# Get existing field names
 	existing_fields = {f.fieldname for f in doctype_doc.fields}

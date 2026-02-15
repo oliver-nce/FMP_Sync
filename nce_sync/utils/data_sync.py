@@ -592,30 +592,70 @@ def _delete_orphans(frappe_doctype, matching_keys, wp_key_set):
 	return deleted_count
 
 
+def _get_sync_frequency_minutes():
+	"""
+	Get the global sync frequency from Sync Manager in minutes.
+
+	Returns:
+		int: Frequency in minutes (default 60)
+	"""
+	frequency_map = {
+		"Every 5 Minutes": 5,
+		"Every 15 Minutes": 15,
+		"Every 30 Minutes": 30,
+		"Hourly": 60,
+		"Every 6 Hours": 360,
+		"Daily": 1440,
+		"Weekly": 10080,
+	}
+
+	try:
+		sync_manager = frappe.get_single("Sync Manager")
+		return frequency_map.get(sync_manager.sync_frequency, 60)
+	except Exception:
+		return 60  # Default to hourly
+
+
 def run_scheduled_syncs():
 	"""
 	Scheduler entry point: sync all tables that are due.
 
 	Called by Frappe scheduler based on hooks.py configuration.
-	Checks each WP Table with auto_sync_active="Yes" and syncs
+	Checks each WP Table with auto_sync_active=1 and syncs
 	if enough time has passed since last_synced.
+
+	Uses global sync frequency from Sync Manager.
+	Also updates Sync Manager status and cleans up old Sync Log records.
 	"""
+	# Check if syncing is globally enabled
+	try:
+		sync_manager = frappe.get_single("Sync Manager")
+		if sync_manager.syncing_active != "Yes":
+			return  # Global sync is disabled
+	except Exception:
+		return  # Sync Manager not configured
+
+	# Get global sync frequency
+	sync_frequency = _get_sync_frequency_minutes()
+
 	# Get all tables eligible for auto-sync
 	tables = frappe.get_all(
 		"WP Tables",
 		filters={
-			"auto_sync_active": "Yes",
+			"auto_sync_active": 1,
 			"mirror_status": "Mirrored",
 		},
-		fields=["name", "table_name", "sync_frequency", "last_synced"],
+		fields=["name", "table_name", "last_synced"],
 	)
 
 	now = now_datetime()
+	tables_synced = 0
+	tables_failed = 0
+	log_messages = []
 
 	for table_info in tables:
 		try:
 			# Check if sync is due
-			sync_frequency = table_info.sync_frequency or 60  # Default 60 minutes
 			last_synced = table_info.last_synced
 
 			if last_synced:
@@ -628,23 +668,104 @@ def run_scheduled_syncs():
 			# Sync is due - run it
 			wp_table_doc = frappe.get_doc("WP Tables", table_info.name)
 			_run_sync_with_status(wp_table_doc)
+			tables_synced += 1
+			log_messages.append(f"✓ {table_info.table_name}")
 
 		except Exception as e:
 			# Log error but continue with other tables
+			tables_failed += 1
+			log_messages.append(f"✗ {table_info.table_name}: {str(e)[:100]}")
 			frappe.log_error(title=f"Scheduled Sync Error: {table_info.table_name}", message=str(e))
+
+	# Update Sync Manager status
+	_update_sync_manager_status(sync_manager, sync_frequency, tables_synced, tables_failed, log_messages)
+
+	# Cleanup old Sync Log records (keep only 20 most recent)
+	_cleanup_old_sync_logs(keep_count=20)
+
+
+def _update_sync_manager_status(sync_manager, sync_frequency, tables_synced, tables_failed, log_messages):
+	"""
+	Update Sync Manager with run status.
+
+	Args:
+		sync_manager: Sync Manager document
+		sync_frequency: Frequency in minutes
+		tables_synced: Count of successfully synced tables
+		tables_failed: Count of failed syncs
+		log_messages: List of log message strings
+	"""
+	now = now_datetime()
+
+	sync_manager.last_run = now
+	sync_manager.next_scheduled_run = now + timedelta(minutes=sync_frequency)
+
+	if tables_failed == 0 and tables_synced > 0:
+		sync_manager.last_run_status = "Success"
+	elif tables_failed > 0 and tables_synced > 0:
+		sync_manager.last_run_status = "Partial"
+	elif tables_failed > 0:
+		sync_manager.last_run_status = "Failed"
+	else:
+		sync_manager.last_run_status = "Success"  # No tables due
+
+	# Build log summary
+	if log_messages:
+		sync_manager.last_run_log = f"Synced: {tables_synced}, Failed: {tables_failed}\n" + "\n".join(log_messages)
+	else:
+		sync_manager.last_run_log = "No tables due for sync"
+
+	sync_manager.save(ignore_permissions=True)
+	frappe.db.commit()
+
+
+def _cleanup_old_sync_logs(keep_count=20):
+	"""
+	Delete old Sync Log records, keeping only the most recent ones.
+
+	Args:
+		keep_count: Number of recent records to keep (default 20)
+	"""
+	# Get all Sync Log names ordered by creation (newest first)
+	all_logs = frappe.get_all(
+		"Sync Log",
+		fields=["name"],
+		order_by="creation desc",
+		limit_page_length=0,
+	)
+
+	# Delete records beyond keep_count
+	if len(all_logs) > keep_count:
+		logs_to_delete = all_logs[keep_count:]
+		for log in logs_to_delete:
+			frappe.delete_doc("Sync Log", log.name, force=True, ignore_permissions=True)
+
+		frappe.db.commit()
 
 
 def _run_sync_with_status(wp_table_doc):
 	"""
 	Run sync and update status fields on the WP Tables document.
+	Also creates a Sync Log record for audit trail.
 
 	Args:
 		wp_table_doc: WP Tables document
 	"""
+	import traceback
+
 	# Set status to Running
 	wp_table_doc.last_sync_status = "Running"
 	wp_table_doc.last_sync_log = "Sync started..."
 	wp_table_doc.save()
+	frappe.db.commit()
+
+	# Create Sync Log record
+	sync_log = frappe.new_doc("Sync Log")
+	sync_log.wp_table = wp_table_doc.name
+	sync_log.sync_method = wp_table_doc.sync_method or "TS Compare"
+	sync_log.status = "Running"
+	sync_log.sync_started = now_datetime()
+	sync_log.insert(ignore_permissions=True)
 	frappe.db.commit()
 
 	try:
@@ -665,6 +786,15 @@ def _run_sync_with_status(wp_table_doc):
 			)
 			# Don't update last_synced - leave it as-is or null
 			wp_table_doc.save()
+
+			# Update Sync Log with partial status
+			sync_log.reload()
+			sync_log.status = "Partial"
+			sync_log.sync_completed = now_datetime()
+			sync_log.duration_seconds = (sync_log.sync_completed - sync_log.sync_started).total_seconds()
+			sync_log.records_synced = 0
+			sync_log.error_message = wp_table_doc.last_sync_log
+			sync_log.save(ignore_permissions=True)
 			frappe.db.commit()
 			return
 
@@ -672,18 +802,44 @@ def _run_sync_with_status(wp_table_doc):
 		wp_table_doc.last_synced = now_datetime()
 		wp_table_doc.last_sync_status = "Success"
 
+		# Calculate record counts
+		rows_upserted = result.get("rows_upserted", 0)
+		rows_inserted = result.get("rows_inserted", 0)
+		rows_deleted = result.get("rows_deleted", 0)
+		if rows_deleted == "all":
+			rows_deleted = 0  # For Truncate & Replace, we don't track exact delete count
+
 		# Build summary log
 		if result.get("method") == "Truncate & Replace":
-			wp_table_doc.last_sync_log = f"Truncate & Replace: {result.get('rows_inserted', 0)} rows inserted"
+			wp_table_doc.last_sync_log = f"Truncate & Replace: {rows_inserted} rows inserted"
+			records_synced = rows_inserted
+			records_created = rows_inserted
+			records_updated = 0
 		else:
 			wp_table_doc.last_sync_log = (
-				f"TS Compare: {result.get('rows_upserted', 0)} upserted, "
-				f"{result.get('rows_deleted', 0)} deleted, "
+				f"TS Compare: {rows_upserted} upserted, "
+				f"{rows_deleted} deleted, "
 				f"{result.get('total_wp_rows', 0)} total WP rows, "
 				f"{frappe_count} in Frappe"
 			)
+			records_synced = rows_upserted
+			# For TS Compare, we can't easily distinguish created vs updated
+			# So we put all in "synced" and leave created/updated as 0
+			records_created = 0
+			records_updated = 0
 
 		wp_table_doc.save()
+
+		# Update Sync Log with success
+		sync_log.reload()
+		sync_log.status = "Success"
+		sync_log.sync_completed = now_datetime()
+		sync_log.duration_seconds = (sync_log.sync_completed - sync_log.sync_started).total_seconds()
+		sync_log.records_synced = records_synced
+		sync_log.records_created = records_created
+		sync_log.records_updated = records_updated
+		sync_log.records_deleted = rows_deleted if isinstance(rows_deleted, int) else 0
+		sync_log.save(ignore_permissions=True)
 		frappe.db.commit()
 
 	except Exception as e:
@@ -691,6 +847,15 @@ def _run_sync_with_status(wp_table_doc):
 		wp_table_doc.last_sync_status = "Error"
 		wp_table_doc.last_sync_log = str(e)[:500]  # Truncate long errors
 		wp_table_doc.save()
+
+		# Update Sync Log with error
+		sync_log.reload()
+		sync_log.status = "Failed"
+		sync_log.sync_completed = now_datetime()
+		sync_log.duration_seconds = (sync_log.sync_completed - sync_log.sync_started).total_seconds()
+		sync_log.error_message = str(e)[:500]
+		sync_log.error_traceback = traceback.format_exc()
+		sync_log.save(ignore_permissions=True)
 		frappe.db.commit()
 
 		frappe.log_error(title=f"Sync Error: {wp_table_doc.table_name}", message=str(e))

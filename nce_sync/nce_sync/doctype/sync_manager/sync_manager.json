@@ -8,8 +8,6 @@
   "syncing_active",
   "column_break_settings",
   "sync_frequency",
-  "tables_section",
-  "tables_to_sync",
   "status_section",
   "last_run",
   "last_run_status",
@@ -44,18 +42,6 @@
    "label": "Global Sync Frequency",
    "options": "Every 5 Minutes\nEvery 15 Minutes\nEvery 30 Minutes\nHourly\nEvery 6 Hours\nDaily\nWeekly",
    "description": "Overrides individual table sync frequency settings"
-  },
-  {
-   "fieldname": "tables_section",
-   "fieldtype": "Section Break",
-   "label": "Tables to Sync"
-  },
-  {
-   "fieldname": "tables_to_sync",
-   "fieldtype": "Table",
-   "label": "Tables",
-   "options": "Sync Table Selection",
-   "description": "Select which WP Tables should be included in automatic sync"
   },
   {
    "fieldname": "status_section",
@@ -95,7 +81,7 @@
  "index_web_pages_for_search": 1,
  "issingle": 1,
  "links": [],
- "modified": "2026-02-11 00:00:00.000000",
+ "modified": "2026-02-13 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "NCE Sync",
  "name": "Sync Manager",

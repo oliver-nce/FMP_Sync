@@ -1,7 +1,6 @@
 {
  "actions": [],
  "allow_rename": 1,
- "autoname": "field:table_name",
  "creation": "2026-02-06 00:00:00.000000",
  "doctype": "DocType",
  "engine": "InnoDB",
@@ -18,7 +17,6 @@
   "sync_direction",
   "sync_method",
   "column_break_sync",
-  "sync_frequency",
   "auto_sync_active",
   "sync_status_section",
   "last_synced",
@@ -42,7 +40,8 @@
    "in_list_view": 1,
    "label": "Table Name",
    "reqd": 1,
-   "unique": 1
+   "unique": 1,
+   "read_only": 1
   },
   {
    "fieldname": "table_type",
@@ -107,19 +106,12 @@
    "fieldtype": "Column Break"
   },
   {
-   "fieldname": "sync_frequency",
-   "fieldtype": "Int",
-   "label": "Sync Frequency (minutes)",
-   "default": "60",
-   "description": "How often to sync this table, in minutes"
-  },
-  {
+   "default": "0",
+   "description": "Enable scheduled automatic sync for this table",
    "fieldname": "auto_sync_active",
-   "fieldtype": "Select",
-   "label": "Auto Sync Active",
-   "options": "No\nYes",
-   "default": "No",
-   "description": "Enable scheduled automatic sync for this table"
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Auto Sync"
   },
   {
    "fieldname": "sync_status_section",

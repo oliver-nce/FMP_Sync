@@ -2,24 +2,53 @@
 # For license information, please see license.txt
 
 """
-Workspace utilities for NCE_Sync.
-Adds/removes dynamically mirrored DocTypes as shortcut cards on the NCE Sync workspace.
+Workspace utilities for NCE_Sync (V15 compatible).
+
+V15 Workspace Structure:
+- Sidebar: Shows only Workspace documents (not DocTypes)
+- Workspace page has two sections:
+  1. content (JSON): Shortcut cards at top of page
+  2. links array: Card sections below shortcuts
+
+Core app DocTypes (WordPress Connection, WP Tables, Sync Manager):
+- Defined in workspace JSON file (committed to git)
+- Appear in both shortcuts (top) and links (card section)
+
+Mirrored DocTypes (dynamically created):
+- Added only to shortcuts (content JSON)
+- Appear as shortcut cards under "Mirrored Tables" header
+- NOT added to links (keeps them separate from core DocTypes)
 """
 
 import json
 
 import frappe
 
-WORKSPACE_NAME = "NCE Sync"
+WORKSPACE_NAME = "NCE Tables"
+NCE_SYNC_MODULE = "NCE Sync"
+
+
+def on_doctype_change(doc, method):
+	"""
+	Hook called when any DocType is created or deleted.
+	Clears workspace cache only if the DocType belongs to NCE Sync module.
+	
+	This ensures the workspace UI updates in real-time when mirrored
+	DocTypes are added or removed.
+	"""
+	# Only clear cache for NCE Sync module DocTypes
+	if doc.module == NCE_SYNC_MODULE:
+		frappe.clear_cache()
+		# Also publish realtime event so open browsers refresh
+		frappe.publish_realtime("workspace_update", {"doctype": doc.name})
 
 
 def add_to_workspace(doctype_name, label=None):
 	"""
-	Add a mirrored DocType as a shortcut card to the NCE Sync workspace content.
+	Add a mirrored DocType as a shortcut card to the NCE Sync workspace.
 
-	Added to content (shortcut cards) only — NOT to links — so that
-	mirrored DocTypes appear on the workspace page but do NOT appear
-	in the magic menu / awesomebar.
+	Mirrored tables are added to the content (shortcuts) section only,
+	keeping them visually separate from the core app DocTypes.
 
 	Args:
 		doctype_name: Name of the DocType
@@ -41,7 +70,7 @@ def add_to_workspace(doctype_name, label=None):
 		if item.get("type") == "shortcut" and item.get("data", {}).get("shortcut_name") == doctype_name:
 			return  # Already exists
 
-	# Add new shortcut card entry to content
+	# Add new shortcut card entry to content (after the "Mirrored Tables" header)
 	shortcut_entry = {
 		"id": frappe.generate_hash(length=10),
 		"type": "shortcut",
@@ -60,8 +89,6 @@ def add_to_workspace(doctype_name, label=None):
 			"link_to": doctype_name,
 			"type": "DocType",
 			"doc_view": "List",
-			"color": "Grey",
-			"stats_filter": "[]",
 		},
 	)
 
@@ -70,81 +97,6 @@ def add_to_workspace(doctype_name, label=None):
 	workspace.save(ignore_permissions=True)
 	frappe.db.commit()
 
-	frappe.clear_cache()
-
-
-def add_to_sidebar(doctype_name, label=None):
-	"""
-	Add a core app DocType to the workspace sidebar (links section).
-
-	Use this for app's own DocTypes (like Sync Manager) that should appear
-	in the sidebar alongside WordPress Connection and WP Tables.
-
-	Args:
-		doctype_name: Name of the DocType
-		label: Optional custom label (defaults to doctype_name)
-	"""
-	if not frappe.db.exists("Workspace", WORKSPACE_NAME):
-		return
-
-	workspace = frappe.get_doc("Workspace", WORKSPACE_NAME)
-
-	# Check if already in links
-	for link in workspace.links:
-		if link.link_to == doctype_name:
-			return  # Already exists
-
-	# Add to links (appears in sidebar)
-	workspace.append(
-		"links",
-		{
-			"label": label or doctype_name,
-			"link_to": doctype_name,
-			"link_type": "DocType",
-			"type": "Link",
-		},
-	)
-
-	# Also add shortcut card
-	try:
-		content = json.loads(workspace.content) if workspace.content else []
-	except json.JSONDecodeError:
-		content = []
-
-	# Check if shortcut already exists
-	shortcut_exists = any(
-		item.get("type") == "shortcut" and item.get("data", {}).get("shortcut_name") == doctype_name
-		for item in content
-	)
-
-	if not shortcut_exists:
-		content.insert(
-			0,
-			{  # Insert at beginning
-				"id": frappe.generate_hash(length=10),
-				"type": "shortcut",
-				"data": {
-					"shortcut_name": doctype_name,
-					"col": 4,
-				},
-			},
-		)
-
-		workspace.append(
-			"shortcuts",
-			{
-				"label": label or doctype_name,
-				"link_to": doctype_name,
-				"type": "DocType",
-				"doc_view": "",
-				"color": "Green",
-				"stats_filter": "[]",
-			},
-		)
-
-	workspace.content = json.dumps(content)
-	workspace.save(ignore_permissions=True)
-	frappe.db.commit()
 	frappe.clear_cache()
 
 
@@ -188,6 +140,9 @@ def cleanup_orphaned_shortcuts():
 	"""
 	Remove workspace shortcuts for DocTypes that no longer exist.
 	Useful for cleaning up after manual DocType deletions.
+
+	Returns:
+		int: Number of orphaned shortcuts removed
 	"""
 	if not frappe.db.exists("Workspace", WORKSPACE_NAME):
 		return 0
@@ -200,28 +155,34 @@ def cleanup_orphaned_shortcuts():
 	except json.JSONDecodeError:
 		content = []
 
-	# Find orphaned shortcuts (DocType no longer exists)
+	# Core DocTypes that should never be removed
+	core_doctypes = {"WordPress Connection", "WP Tables", "Sync Manager"}
+
+	# Find orphaned shortcuts (DocType no longer exists, excluding core)
 	cleaned_content = []
 	removed_count = 0
 
 	for item in content:
 		if item.get("type") == "shortcut":
 			shortcut_name = item.get("data", {}).get("shortcut_name")
-			if shortcut_name and frappe.db.exists("DocType", shortcut_name):
-				cleaned_content.append(item)  # Keep it
+			# Keep if: it's a core doctype OR it exists in DB
+			if shortcut_name in core_doctypes or (shortcut_name and frappe.db.exists("DocType", shortcut_name)):
+				cleaned_content.append(item)
 			else:
-				removed_count += 1  # Remove it
+				removed_count += 1
 				if shortcut_name:
 					frappe.log_error(
 						title="Removed Orphaned Workspace Shortcut",
 						message=f"Removed shortcut for non-existent DocType: {shortcut_name}",
 					)
 		else:
-			cleaned_content.append(item)  # Keep non-shortcut items
+			cleaned_content.append(item)  # Keep non-shortcut items (headers, spacers)
 
-	# Clean shortcuts child table
+	# Clean shortcuts child table (keep core doctypes)
 	workspace.shortcuts = [
-		s for s in workspace.shortcuts if not s.link_to or frappe.db.exists("DocType", s.link_to)
+		s
+		for s in workspace.shortcuts
+		if s.link_to in core_doctypes or (s.link_to and frappe.db.exists("DocType", s.link_to))
 	]
 
 	# Save if changes were made

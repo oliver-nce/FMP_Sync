@@ -11,7 +11,7 @@
  "icon": "database",
  "idx": 0,
  "is_hidden": 0,
- "label": "NCE Tables",
+ "label": "Tables",
  "links": [
   {
    "description": "Manage WordPress database connections and table mirroring",
@@ -67,7 +67,7 @@
  "modified": "2026-02-16 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "NCE Sync",
- "name": "NCE Tables",
+ "name": "Tables",
  "number_cards": [],
  "owner": "Administrator",
  "parent_page": "",
@@ -108,6 +108,6 @@
    "type": "DocType"
   }
  ],
- "title": "NCE Tables",
+ "title": "Tables",
  "type": "Workspace"
 }

@@ -16,7 +16,7 @@ add_to_apps_screen = [
 		"name": "nce_sync",
 		"logo": "/assets/nce_sync/logo.png",
 		"title": "NCE Tables",
-		"route": "/app/nce-tables",
+		"route": "/app/tables",
 	}
 ]
 

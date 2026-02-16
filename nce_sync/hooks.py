@@ -11,15 +11,14 @@ app_license = "mit"
 # required_apps = []
 
 # Each item in the list will be shown as an app in the apps page
-# add_to_apps_screen = [
-# 	{
-# 		"name": "nce_sync",
-# 		"logo": "/assets/nce_sync/logo.png",
-# 		"title": "Base App",
-# 		"route": "/nce_sync",
-# 		"has_permission": "nce_sync.api.permission.has_app_permission"
-# 	}
-# ]
+add_to_apps_screen = [
+	{
+		"name": "nce_sync",
+		"logo": "/assets/nce_sync/logo.png",
+		"title": "NCE Tables",
+		"route": "/app/nce-tables",
+	}
+]
 
 # Includes in <head>
 # ------------------

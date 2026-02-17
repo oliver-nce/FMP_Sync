@@ -24,7 +24,7 @@ import json
 
 import frappe
 
-WORKSPACE_NAME = "NCE Tables"
+WORKSPACE_NAME = "Tables"
 NCE_SYNC_MODULE = "NCE Sync"
 
 

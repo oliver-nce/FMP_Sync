@@ -14,7 +14,7 @@ app_license = "mit"
 add_to_apps_screen = [
 	{
 		"name": "nce_sync",
-		"logo": "/assets/nce_sync/logo.png",
+		"logo": "/assets/nce_sync/images/logo.png",
 		"title": "NCE Tables",
 		"route": "/app/tables",
 	}

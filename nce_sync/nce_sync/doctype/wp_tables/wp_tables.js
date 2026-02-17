@@ -22,6 +22,14 @@ const FRAPPE_FIELD_TYPES = [
 ];
 
 frappe.ui.form.on("WP Tables", {
+	after_save: function (frm) {
+		// If validate() renamed the doc (NCE Name changed), redirect to the new URL
+		let route_name = frappe.get_route()[2];
+		if (route_name && route_name !== frm.doc.name) {
+			frappe.set_route("Form", "WP Tables", frm.doc.name);
+		}
+	},
+
 	refresh: function (frm) {
 		if (frm.is_new()) return;
 
@@ -46,20 +54,17 @@ frappe.ui.form.on("WP Tables", {
 
 		// Only show sync and cleanup buttons when a mirror exists
 		if (frm.doc.mirror_status === "Mirrored" && frm.doc.frappe_doctype) {
-			// Sync Now button - primary action for mirrored tables
+			// Sync Now button - enqueues background sync with toast progress
 			frm.add_custom_button(
 				__("Sync Now"),
 				function () {
 					frappe.call({
 						method: "sync_now",
 						doc: frm.doc,
-						freeze: true,
-						freeze_message: __("Syncing data from WordPress..."),
 						callback: function (r) {
 							frm.reload_doc();
 						},
 						error: function (r) {
-							// Reload to show error status
 							frm.reload_doc();
 						},
 					});
@@ -166,7 +171,7 @@ frappe.ui.form.on("WP Tables", {
 								callback: function () {
 									// Clear local workspace cache and redirect
 									frappe.ui.toolbar.clear_cache();
-									window.location.href = "/app/nce-tables";
+									window.location.href = "/app/tables";
 								},
 							});
 						}
@@ -243,7 +248,7 @@ function show_preview_dialog(frm, preview_data) {
 				freeze_message: __("Creating DocType..."),
 				callback: function (r) {
 					d.hide();
-					window.location.href = "/app/nce-tables";
+					window.location.href = "/app/tables";
 				},
 				error: function (r) {
 					// Re-enable button so the user can retry after fixing the issue

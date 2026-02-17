@@ -1,0 +1,129 @@
+{
+ "charts": [],
+ "content": "[{\"id\": \"wp_conn_shortcut\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"WordPress Connection\", \"col\": 4}}, {\"id\": \"wp_tables_shortcut\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"WP Tables\", \"col\": 4}}, {\"id\": \"sync_manager_shortcut\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Sync Manager\", \"col\": 4}}, {\"id\": \"sync_log_shortcut\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Sync Log\", \"col\": 4}}, {\"id\": \"b4d0ee85ed\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Families\", \"col\": 4}}, {\"id\": \"8bbd51f107\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Family Members\", \"col\": 4}}, {\"id\": \"64d4fbb152\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Registrations\", \"col\": 4}}]",
+ "creation": "2026-02-06 00:00:00",
+ "custom_blocks": [],
+ "docstatus": 0,
+ "doctype": "Workspace",
+ "for_user": "",
+ "hide_custom": 0,
+ "icon": "database",
+ "idx": 0,
+ "is_hidden": 0,
+ "label": "Tables",
+ "links": [
+  {
+   "description": "Manage WordPress database connections and table mirroring",
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Data Sync",
+   "link_count": 2,
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Card Break"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "WordPress Connection",
+   "link_count": 0,
+   "link_to": "WordPress Connection",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "WP Tables",
+   "link_count": 0,
+   "link_to": "WP Tables",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Sync Manager",
+   "link_count": 0,
+   "link_to": "Sync Manager",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Sync Log",
+   "link_count": 0,
+   "link_to": "Sync Log",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  }
+ ],
+ "modified": "2026-02-17 16:59:01.865669",
+ "modified_by": "Administrator",
+ "module": "NCE Sync",
+ "name": "Tables",
+ "number_cards": [],
+ "owner": "Administrator",
+ "parent_page": "",
+ "public": 1,
+ "quick_lists": [],
+ "restrict_to_domain": "",
+ "roles": [],
+ "sequence_id": 20.0,
+ "shortcuts": [
+  {
+   "color": "Blue",
+   "doc_view": "",
+   "label": "WordPress Connection",
+   "link_to": "WordPress Connection",
+   "type": "DocType"
+  },
+  {
+   "color": "Blue",
+   "doc_view": "List",
+   "label": "WP Tables",
+   "link_to": "WP Tables",
+   "stats_filter": "[]",
+   "type": "DocType"
+  },
+  {
+   "color": "Blue",
+   "doc_view": "",
+   "label": "Sync Manager",
+   "link_to": "Sync Manager",
+   "type": "DocType"
+  },
+  {
+   "color": "Blue",
+   "doc_view": "List",
+   "label": "Sync Log",
+   "link_to": "Sync Log",
+   "stats_filter": "[]",
+   "type": "DocType"
+  },
+  {
+   "doc_view": "List",
+   "label": "Families",
+   "link_to": "Families",
+   "type": "DocType"
+  },
+  {
+   "doc_view": "List",
+   "label": "Family Members",
+   "link_to": "Family Members",
+   "type": "DocType"
+  },
+  {
+   "doc_view": "List",
+   "label": "Registrations",
+   "link_to": "Registrations",
+   "type": "DocType"
+  }
+ ],
+ "title": "Tables"
+}

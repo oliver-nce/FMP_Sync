@@ -326,19 +326,26 @@ class WPTables(Document):
 	def sync_now(self):
 		"""
 		Manual trigger for syncing this table's data from WordPress to Frappe.
-		Updates status fields before and after sync.
+		Enqueues the sync as a background job so the user can keep working.
+		Progress is reported via toast notifications.
 		"""
-		from nce_sync.utils.data_sync import _run_sync_with_status
-
 		if self.mirror_status != "Mirrored":
 			frappe.throw(_("Table must be mirrored before syncing"))
 
 		if not self.frappe_doctype:
 			frappe.throw(_("No Frappe DocType associated with this table"))
 
-		_run_sync_with_status(self)
+		frappe.enqueue(
+			"nce_sync.utils.data_sync.run_sync_for_table",
+			queue="long",
+			timeout=3600,
+			wp_table_name=self.name,
+		)
 
 		frappe.msgprint(
-			_("Successfully synced table: {0}").format(self.table_name),
-			indicator="green",
+			_("Sync started in background for {0}. You'll see progress toasts in the bottom-right.").format(
+				self.nce_name or self.table_name
+			),
+			indicator="blue",
+			alert=True,
 		)

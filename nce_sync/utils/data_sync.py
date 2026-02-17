@@ -326,6 +326,59 @@ def _get_cutoff_timestamp(frappe_doctype, frappe_ts_field, wp_tz):
 	return convert_frappe_ts_to_wp_tz(cutoff, wp_tz)
 
 
+def _publish_sync_progress(table_name, rows_processed, total_rows):
+	"""
+	Publish sync progress as toast notifications via realtime.
+	Uses the built-in 'msgprint' event so Frappe shows toasts automatically.
+
+	Args:
+		table_name: WP Tables document name
+		rows_processed: Number of rows processed so far
+		total_rows: Total rows expected
+	"""
+	message = f"{table_name}: {rows_processed} of {total_rows} rows uploaded"
+	frappe.publish_realtime("msgprint", {
+		"message": message,
+		"indicator": "blue",
+		"alert": 1,
+	})
+	# Also update the doc so progress is visible on page refresh
+	frappe.db.set_value("WP Tables", table_name, "last_sync_log", f"Syncing: {rows_processed} of {total_rows} rows uploaded", update_modified=False)
+	frappe.db.commit()
+
+
+def _count_rows_to_sync(conn, table_name, ts_field, create_ts_field, cutoff):
+	"""
+	Count how many rows will be synced, using the same WHERE clause as _fetch_changed_rows.
+
+	Args:
+		conn: PyMySQL connection
+		table_name: WordPress table name
+		ts_field: Modified timestamp field name
+		create_ts_field: Created timestamp field name (may be None)
+		cutoff: Cutoff datetime in WP timezone (None = count all)
+
+	Returns:
+		int: Number of rows to sync
+	"""
+	cursor = conn.cursor()
+
+	if cutoff:
+		if create_ts_field and create_ts_field != ts_field:
+			cursor.execute(
+				f"SELECT COUNT(*) as cnt FROM `{table_name}` WHERE `{ts_field}` >= %s OR `{create_ts_field}` >= %s",
+				(cutoff, cutoff),
+			)
+		else:
+			cursor.execute(f"SELECT COUNT(*) as cnt FROM `{table_name}` WHERE `{ts_field}` >= %s", (cutoff,))
+	else:
+		cursor.execute(f"SELECT COUNT(*) as cnt FROM `{table_name}`")
+
+	result = cursor.fetchone()
+	cursor.close()
+	return result["cnt"] if result else 0
+
+
 def _fetch_changed_rows(conn, table_name, ts_field, create_ts_field, cutoff):
 	"""
 	Fetch rows from WordPress that have changed since the cutoff.
@@ -399,6 +452,12 @@ def _sync_ts_compare(conn, wp_table_doc, wp_conn_doc, frappe_doctype, ts_field):
 	# Step 2: Get changed rows from WP
 	frappe_ts_field = get_frappe_fieldname(ts_field, column_mapping) if ts_field else None
 	cutoff = _get_cutoff_timestamp(frappe_doctype, frappe_ts_field, wp_tz)
+
+	# Pre-count rows to sync for progress tracking
+	total_to_sync = _count_rows_to_sync(
+		conn, table_name, ts_field, wp_table_doc.created_timestamp_field, cutoff
+	)
+
 	changed_rows = _fetch_changed_rows(
 		conn, table_name, ts_field, wp_table_doc.created_timestamp_field, cutoff
 	)
@@ -414,8 +473,16 @@ def _sync_ts_compare(conn, wp_table_doc, wp_conn_doc, frappe_doctype, ts_field):
 			_upsert_record(frappe_doctype, matching_keys, converted_row)
 			rows_upserted += 1
 
+			# Progress update every 1000 rows
+			if rows_upserted % 1000 == 0:
+				_publish_sync_progress(wp_table_doc.name, rows_upserted, total_to_sync)
+
 		# Commit after each batch
 		frappe.db.commit()
+
+	# Final progress update
+	if total_to_sync > 0:
+		_publish_sync_progress(wp_table_doc.name, rows_upserted, total_to_sync)
 
 	return {
 		"method": "TS Compare",
@@ -452,7 +519,9 @@ def _sync_truncate_replace(conn, wp_table_doc, wp_conn_doc, frappe_doctype):
 	frappe.db.delete(frappe_doctype)
 	frappe.db.commit()
 
-	# Step 2: Get all rows from WordPress
+	# Step 2: Pre-count and get all rows from WordPress
+	total_to_sync = _count_rows_to_sync(conn, table_name, None, None, None)
+
 	cursor = conn.cursor()
 	cursor.execute(f"SELECT * FROM `{table_name}`")
 	all_rows = cursor.fetchall()
@@ -469,8 +538,16 @@ def _sync_truncate_replace(conn, wp_table_doc, wp_conn_doc, frappe_doctype):
 			_insert_record(frappe_doctype, converted_row)
 			rows_inserted += 1
 
+			# Progress update every 1000 rows
+			if rows_inserted % 1000 == 0:
+				_publish_sync_progress(wp_table_doc.name, rows_inserted, total_to_sync)
+
 		# Commit after each batch
 		frappe.db.commit()
+
+	# Final progress update
+	if total_to_sync > 0:
+		_publish_sync_progress(wp_table_doc.name, rows_inserted, total_to_sync)
 
 	return {
 		"method": "Truncate & Replace",
@@ -741,6 +818,34 @@ def _cleanup_old_sync_logs(keep_count=20):
 			frappe.delete_doc("Sync Log", log.name, force=True, ignore_permissions=True)
 
 		frappe.db.commit()
+
+
+def run_sync_for_table(wp_table_name):
+	"""
+	Background-job entry point: load the WP Tables doc by name and sync it.
+	Sends toast notifications on completion or error.
+
+	Args:
+		wp_table_name: Name (primary key) of the WP Tables document
+	"""
+	wp_table_doc = frappe.get_doc("WP Tables", wp_table_name)
+	label = wp_table_doc.nce_name or wp_table_doc.table_name
+
+	try:
+		_run_sync_with_status(wp_table_doc)
+
+		frappe.publish_realtime("msgprint", {
+			"message": f"{label}: Sync complete",
+			"indicator": "green",
+			"alert": 1,
+		})
+	except Exception as e:
+		frappe.publish_realtime("msgprint", {
+			"message": f"{label}: Sync failed — {str(e)[:120]}",
+			"indicator": "red",
+			"alert": 1,
+		})
+		raise
 
 
 def _run_sync_with_status(wp_table_doc):

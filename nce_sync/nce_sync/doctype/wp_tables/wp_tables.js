@@ -23,10 +23,21 @@ const FRAPPE_FIELD_TYPES = [
 
 frappe.ui.form.on("WP Tables", {
 	after_save: function (frm) {
-		// If validate() renamed the doc (NCE Name changed), redirect to the new URL
-		let route_name = frappe.get_route()[2];
-		if (route_name && route_name !== frm.doc.name) {
-			frappe.set_route("Form", "WP Tables", frm.doc.name);
+		let desired = (frm.doc.nce_name || frm.doc.table_name || "").trim();
+		if (desired && frm.doc.name !== desired) {
+			frappe.xcall("frappe.client.rename_doc", {
+				doctype: "WP Tables",
+				old_name: frm.doc.name,
+				new_name: desired,
+			}).then(() => {
+				frappe.set_route("Form", "WP Tables", desired);
+			}).catch((e) => {
+				frappe.msgprint({
+					title: __("Rename Failed"),
+					message: e.message || __("Could not rename to {0}", [desired]),
+					indicator: "red",
+				});
+			});
 		}
 	},
 
@@ -71,6 +82,27 @@ frappe.ui.form.on("WP Tables", {
 				},
 				__("Actions")
 			);
+
+			frappe.xcall("nce_sync.utils.workspace_utils.is_in_workspace", {
+				doctype_name: frm.doc.frappe_doctype,
+			}).then((in_ws) => {
+				if (!in_ws) {
+					let btn = frm.add_custom_button(
+						__("Add to Workspace"),
+						function () {
+							frappe.call({
+								method: "add_to_workspace",
+								doc: frm.doc,
+								callback: function () {
+									frappe.ui.toolbar.clear_cache();
+									frm.reload_doc();
+								},
+							});
+						}
+					);
+					btn.css({ "background-color": "pink", "color": "red", "font-weight": "bold" });
+				}
+			});
 
 			frm.add_custom_button(
 				__("Regen Column Map"),

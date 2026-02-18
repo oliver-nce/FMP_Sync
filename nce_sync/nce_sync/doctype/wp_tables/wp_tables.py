@@ -15,47 +15,45 @@ class WPTables(Document):
 		"""Set document name from nce_name if provided, otherwise use table_name."""
 		self.name = self.nce_name or self.table_name
 
+	def on_trash(self):
+		"""Full cascade cleanup: delete Sync Logs, mirrored DocType, and workspace shortcut."""
+		from nce_sync.utils.workspace_utils import remove_from_workspace
+
+		# Delete associated Sync Log records
+		sync_logs = frappe.get_all("Sync Log", filters={"wp_table": self.name}, pluck="name")
+		for log_name in sync_logs:
+			frappe.delete_doc("Sync Log", log_name, force=True, ignore_permissions=True)
+
+		# Delete mirrored DocType and remove from workspace
+		if self.frappe_doctype:
+			remove_from_workspace(self.frappe_doctype)
+			if frappe.db.exists("DocType", self.frappe_doctype):
+				frappe.delete_doc("DocType", self.frappe_doctype, force=True, ignore_permissions=True)
+
 	def validate(self):
 		"""Validate and enforce source-of-truth hierarchy."""
-		# Check if NCE Name conflicts with existing DocType
 		if self.nce_name:
 			self._validate_doctype_name(self.nce_name)
 
-		# Rename document if nce_name changed and differs from current name
-		desired_name = self.nce_name or self.table_name
-		if self.name and self.name != desired_name and not self.is_new():
-			self._rename_to(desired_name)
-
-	def _rename_to(self, new_name):
-		"""Rename this document to new_name."""
-		if frappe.db.exists("WP Tables", new_name):
-			frappe.throw(_("A WP Table with name '{0}' already exists").format(new_name))
-
-		# Use Frappe's rename_doc
-		frappe.rename_doc("WP Tables", self.name, new_name, force=True)
-		self.name = new_name
-
 	def _validate_doctype_name(self, name):
 		"""
-		Check if the proposed DocType name conflicts with existing DocTypes.
-		Warns about system DocTypes and other conflicts.
+		Check if the proposed DocType name conflicts with existing DocTypes
+		or database tables (which may belong to Frappe core or other apps).
 		"""
 		# Skip if this table already owns this DocType
 		if self.frappe_doctype == name:
 			return
 
-		# Check if DocType already exists
+		# Check if DocType already exists in the registry
 		if frappe.db.exists("DocType", name):
-			# Check if it's a system/core DocType (not custom)
 			is_custom = frappe.db.get_value("DocType", name, "custom")
 			if not is_custom:
 				frappe.throw(
 					_(
-						"'{0}' is a Frappe system DocType and cannot be used. Please choose a different name."
+						"'{0}' is a system DocType and cannot be used. Please choose a different name."
 					).format(name)
 				)
 			else:
-				# It's a custom DocType - check if another WP Table owns it
 				other_table = frappe.db.get_value(
 					"WP Tables", {"frappe_doctype": name, "name": ["!=", self.name]}, "name"
 				)
@@ -71,6 +69,14 @@ class WPTables(Document):
 							"A DocType named '{0}' already exists. Please choose a different name or delete the existing DocType first."
 						).format(name)
 					)
+
+		# Check if a database table with this name already exists (possibly in use by another app)
+		if frappe.db.sql("SHOW TABLES LIKE %s", f"tab{name}"):
+			frappe.throw(
+				_(
+					"'{0}' cannot be used — it already exists, possibly in use by another app. Please choose a different name."
+				).format(name)
+			)
 
 	@frappe.whitelist()
 	def preview_schema(self):
@@ -184,6 +190,21 @@ class WPTables(Document):
 		frappe.msgprint(
 			_("Removed table '{0}' and all associated data.").format(table_name),
 			indicator="green",
+		)
+
+	@frappe.whitelist()
+	def add_to_workspace(self):
+		"""Add the mirrored DocType as a shortcut in the Tables workspace."""
+		from nce_sync.utils.workspace_utils import add_to_workspace
+
+		if not self.frappe_doctype:
+			frappe.throw(_("No mirrored DocType to add"))
+
+		add_to_workspace(self.frappe_doctype, label=self.nce_name or self.frappe_doctype)
+		frappe.msgprint(
+			_("Added '{0}' to the workspace.").format(self.frappe_doctype),
+			indicator="green",
+			alert=True,
 		)
 
 	@frappe.whitelist()

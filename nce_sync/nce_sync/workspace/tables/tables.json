@@ -1,6 +1,6 @@
 {
  "charts": [],
- "content": "[{\"id\": \"wp_conn_shortcut\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"WordPress Connection\", \"col\": 4}}, {\"id\": \"wp_tables_shortcut\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"WP Tables\", \"col\": 4}}, {\"id\": \"sync_manager_shortcut\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Sync Manager\", \"col\": 4}}, {\"id\": \"sync_log_shortcut\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Sync Log\", \"col\": 4}}, {\"id\": \"b4d0ee85ed\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Families\", \"col\": 4}}, {\"id\": \"8bbd51f107\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Family Members\", \"col\": 4}}, {\"id\": \"64d4fbb152\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Registrations\", \"col\": 4}}]",
+ "content": "[{\"id\": \"wp_conn_shortcut\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"WordPress Connection\", \"col\": 4}}, {\"id\": \"wp_tables_shortcut\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"WP Tables\", \"col\": 4}}, {\"id\": \"sync_manager_shortcut\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Sync Manager\", \"col\": 4}}, {\"id\": \"sync_log_shortcut\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Sync Log\", \"col\": 4}}, {\"id\": \"b4d0ee85ed\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Families\", \"col\": 4}}, {\"id\": \"8bbd51f107\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Family Members\", \"col\": 4}}, {\"id\": \"64d4fbb152\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Registrations\", \"col\": 4}}, {\"id\": \"12f34fb231\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Venues\", \"col\": 4}}, {\"id\": \"03cb171ddc\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Events\", \"col\": 4}}]",
  "creation": "2026-02-06 00:00:00",
  "custom_blocks": [],
  "docstatus": 0,
@@ -63,7 +63,7 @@
    "type": "Link"
   }
  ],
- "modified": "2026-02-17 16:59:01.865669",
+ "modified": "2026-02-17 19:06:47.659074",
  "modified_by": "Administrator",
  "module": "NCE Sync",
  "name": "Tables",
@@ -122,6 +122,18 @@
    "doc_view": "List",
    "label": "Registrations",
    "link_to": "Registrations",
+   "type": "DocType"
+  },
+  {
+   "doc_view": "List",
+   "label": "Venues",
+   "link_to": "Venues",
+   "type": "DocType"
+  },
+  {
+   "doc_view": "List",
+   "label": "Events",
+   "link_to": "Events",
    "type": "DocType"
   }
  ],

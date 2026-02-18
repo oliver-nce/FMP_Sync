@@ -136,6 +136,18 @@ def remove_from_workspace(doctype_name):
 
 
 @frappe.whitelist()
+def is_in_workspace(doctype_name):
+	"""Check if a DocType already has a shortcut in the Tables workspace."""
+	if not frappe.db.exists("Workspace", WORKSPACE_NAME):
+		return False
+	workspace = frappe.get_doc("Workspace", WORKSPACE_NAME)
+	for s in workspace.shortcuts:
+		if s.link_to == doctype_name:
+			return True
+	return False
+
+
+@frappe.whitelist()
 def cleanup_orphaned_shortcuts():
 	"""
 	Remove workspace shortcuts for DocTypes that no longer exist.

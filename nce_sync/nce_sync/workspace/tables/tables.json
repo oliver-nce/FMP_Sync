@@ -1,6 +1,6 @@
 {
  "charts": [],
- "content": "[{\"id\": \"0mzeg9TXjg\", \"type\": \"header\", \"data\": {\"text\": \"<span class=\\\"h4\\\"><b>System Tables</b></span>\", \"col\": 12}}, {\"id\": \"wp_conn_shortcut\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"WordPress Connection\", \"col\": 4}}, {\"id\": \"wp_tables_shortcut\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"WP Tables\", \"col\": 4}}, {\"id\": \"sync_manager_shortcut\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Sync Manager\", \"col\": 4}}, {\"id\": \"sync_log_shortcut\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Sync Log\", \"col\": 4}}, {\"id\": \"Rc_NRS5hkB\", \"type\": \"header\", \"data\": {\"text\": \"<span class=\\\"h4\\\"><b>Data Tables</b></span>\", \"col\": 12}}, {\"id\": \"00783d22b9\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Family Members\", \"col\": 4}}, {\"id\": \"e5e4d67394\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Families\", \"col\": 4}}, {\"id\": \"e5e67e8e36\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Registrations\", \"col\": 4}}, {\"id\": \"hdr_reports\", \"type\": \"header\", \"data\": {\"text\": \"<span class=\\\"h4\\\"><b>Reports</b></span>\", \"col\": 12}}, {\"id\": \"hdr_pages\", \"type\": \"header\", \"data\": {\"text\": \"<span class=\\\"h4\\\"><b>Pages</b></span>\", \"col\": 12}}, {\"id\": \"table_links_shortcut\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Table Links\", \"col\": 4}}]",
+ "content": "[{\"id\": \"0mzeg9TXjg\", \"type\": \"header\", \"data\": {\"text\": \"<span class=\\\"h4\\\"><b>System Tables</b></span>\", \"col\": 12}}, {\"id\": \"wp_conn_shortcut\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"WordPress Connection\", \"col\": 4}}, {\"id\": \"wp_tables_shortcut\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"WP Tables\", \"col\": 4}}, {\"id\": \"sync_manager_shortcut\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Sync Manager\", \"col\": 4}}, {\"id\": \"sync_log_shortcut\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Sync Log\", \"col\": 4}}, {\"id\": \"Rc_NRS5hkB\", \"type\": \"header\", \"data\": {\"text\": \"<span class=\\\"h4\\\"><b>Data Tables</b></span>\", \"col\": 12}}, {\"id\": \"hdr_reports\", \"type\": \"header\", \"data\": {\"text\": \"<span class=\\\"h4\\\"><b>Reports</b></span>\", \"col\": 12}}, {\"id\": \"hdr_pages\", \"type\": \"header\", \"data\": {\"text\": \"<span class=\\\"h4\\\"><b>Pages</b></span>\", \"col\": 12}}, {\"id\": \"table_links_shortcut\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Table Links\", \"col\": 4}}]",
  "creation": "2026-02-06 00:00:00",
  "custom_blocks": [],
  "docstatus": 0,
@@ -11,38 +11,7 @@
  "idx": 0,
  "is_hidden": 0,
  "label": "Tables",
- "links": [
-  {
-   "hidden": 0,
-   "is_query_report": 0,
-   "label": "Sync Manager",
-   "link_count": 0,
-   "link_to": "Sync Manager",
-   "link_type": "DocType",
-   "onboard": 0,
-   "type": "Link"
-  },
-  {
-   "hidden": 0,
-   "is_query_report": 0,
-   "label": "Sync Log",
-   "link_count": 0,
-   "link_to": "Sync Log",
-   "link_type": "DocType",
-   "onboard": 0,
-   "type": "Link"
-  },
-  {
-   "hidden": 0,
-   "is_query_report": 0,
-   "label": "Table Links",
-   "link_count": 0,
-   "link_to": "table-links",
-   "link_type": "Page",
-   "onboard": 0,
-   "type": "Link"
-  }
- ],
+ "links": [],
  "modified": "2026-02-21 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "NCE Sync",
@@ -92,24 +61,6 @@
    "label": "Table Links",
    "link_to": "table-links",
    "type": "Page"
-  },
-  {
-   "doc_view": "List",
-   "label": "Family Members",
-   "link_to": "Family Members",
-   "type": "DocType"
-  },
-  {
-   "doc_view": "List",
-   "label": "Families",
-   "link_to": "Families",
-   "type": "DocType"
-  },
-  {
-   "doc_view": "List",
-   "label": "Registrations",
-   "link_to": "Registrations",
-   "type": "DocType"
   }
  ],
  "title": "Tables"

@@ -107,6 +107,103 @@ def get_table_links_grid_data():
 				links[source] = {}
 			if target not in links[source]:
 				links[source][target] = []
-			links[source][target].append({"field": df.fieldname, "label": df.label or df.fieldname})
+			links[source][target].append({
+				"field": df.fieldname,
+				"label": df.label or df.fieldname,
+				"many_doctype": source,
+			})
+
+			# Also record in the reverse direction so the grid cell works both ways
+			if target not in links:
+				links[target] = {}
+			if source not in links[target]:
+				links[target][source] = []
+			links[target][source].append({
+				"field": df.fieldname,
+				"label": df.label or df.fieldname,
+				"many_doctype": source,
+			})
 
 	return {"tables": doctypes, "links": links}
+
+
+@frappe.whitelist()
+def apply_table_link_changes(to_add, to_delete):
+	"""
+	Apply pending link field changes in batch.
+
+	Args:
+		to_add: JSON list of {"many_doctype", "one_doctype", "field_name"}
+		to_delete: JSON list of {"many_doctype", "field_name"}
+
+	Returns:
+		str: Summary message
+	"""
+	import json as _json
+
+	additions = _json.loads(to_add) if isinstance(to_add, str) else to_add
+	deletions = _json.loads(to_delete) if isinstance(to_delete, str) else to_delete
+	msgs = []
+
+	for item in deletions:
+		dt = item["many_doctype"]
+		fname = item["field_name"]
+		frappe.clear_cache(doctype=dt)
+		meta = frappe.get_meta(dt)
+		existing = meta.get_field(fname) if meta.has_field(fname) else None
+		if not existing or existing.fieldtype != "Link":
+			msgs.append(_("{0}.{1} is not a Link field, skipped").format(dt, fname))
+			continue
+		try:
+			doc = frappe.get_doc("DocType", dt)
+			for f in doc.fields:
+				if f.fieldname == fname:
+					f.fieldtype = "Data"
+					f.options = ""
+					break
+			doc.save(ignore_permissions=True)
+			frappe.db.commit()
+			frappe.clear_cache(doctype=dt)
+			msgs.append(_("Reverted {0}.{1} from Link to Data").format(dt, fname))
+		except Exception as e:
+			msgs.append(_("FAILED revert {0}.{1}: {2}").format(dt, fname, str(e)))
+
+	for item in additions:
+		dt = item["many_doctype"]
+		one_dt = item["one_doctype"]
+		fname = item["field_name"]
+		frappe.clear_cache(doctype=dt)
+		meta = frappe.get_meta(dt)
+		existing = meta.get_field(fname) if meta.has_field(fname) else None
+
+		if existing and existing.fieldtype == "Link" and existing.options == one_dt:
+			msgs.append(_("{0}.{1} already links to {2}, skipped").format(dt, fname, one_dt))
+			continue
+
+		try:
+			doc = frappe.get_doc("DocType", dt)
+			if existing:
+				for f in doc.fields:
+					if f.fieldname == fname:
+						f.fieldtype = "Link"
+						f.options = one_dt
+						break
+				action = _("Converted {0}.{1} ({2}) to Link → {3}").format(
+					dt, fname, existing.fieldtype, one_dt
+				)
+			else:
+				doc.append("fields", {
+					"fieldname": fname,
+					"fieldtype": "Link",
+					"label": fname.replace("_", " ").title(),
+					"options": one_dt,
+				})
+				action = _("Added {0}.{1} → {2}").format(dt, fname, one_dt)
+			doc.save(ignore_permissions=True)
+			frappe.db.commit()
+			frappe.clear_cache(doctype=dt)
+			msgs.append(action)
+		except Exception as e:
+			msgs.append(_("FAILED {0}.{1}: {2}").format(dt, fname, str(e)))
+
+	return "; ".join(msgs) if msgs else _("No changes applied")

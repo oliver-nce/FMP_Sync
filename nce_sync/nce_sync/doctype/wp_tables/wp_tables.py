@@ -31,35 +31,64 @@ def _is_safe_to_drop_table(doctype_name):
 	return True
 
 
+def _collect_soft_dependencies(doctype_name):
+	"""
+	Return a dict of all soft-dependency document names that reference doctype_name.
+	These are artifacts Frappe does NOT clean up automatically on DocType deletion.
+	"""
+	def names(dt, filters):
+		return frappe.get_all(dt, filters=filters, pluck="name")
+
+	return {
+		"Report":         names("Report",         {"ref_doctype": doctype_name}),
+		"Dashboard Chart":names("Dashboard Chart", {"document_type": doctype_name}),
+		"Number Card":    names("Number Card",     {"document_type": doctype_name}),
+		"Client Script":  names("Client Script",   {"dt": doctype_name}),
+		"Kanban Board":   names("Kanban Board",    {"reference_doctype": doctype_name}),
+		"Print Format":   names("Print Format",    {"doc_type": doctype_name}),
+	}
+
+
 def _delete_mirrored_doctype(doctype_name):
 	"""
-	Fully remove a mirrored DocType: workspace shortcut, DocType record, and DB table.
-	Frappe often leaves orphaned tables when deleting DocTypes, so we explicitly drop
-	the table first, then delete the DocType. This guarantees the table is gone.
-	Never drops core Frappe tables (guard rail).
+	Fully remove a mirrored DocType and all its soft dependencies in the correct order
+	so that Frappe's workspace validation never encounters a stale reference.
+
+	Order:
+	  1. Collect all soft-dependency artifacts (Reports, Charts, Scripts, etc.)
+	  2. Remove their workspace links WHILE they still exist (validation passes)
+	  3. Delete the artifacts
+	  4. Remove the DocType workspace shortcut
+	  5. Delete the DocType — Frappe drops the table and cleans hard dependencies
 	"""
 	if not _is_safe_to_drop_table(doctype_name):
 		return
+
 	from nce_sync.utils.workspace_utils import remove_from_workspace
 
-	remove_from_workspace(doctype_name)
+	# Step 1: collect everything that references this DocType
+	deps = _collect_soft_dependencies(doctype_name)
 
-	# Drop table FIRST - guarantees it's gone even if DocType delete fails
-	table_name = f"tab{doctype_name}"
-	try:
-		frappe.db.sql(f"DROP TABLE IF EXISTS `{table_name}`")
+	# Step 2 + 4: clean workspace (shortcuts + all artifact links) before anything is deleted
+	remove_from_workspace(doctype_name, soft_deps=deps)
+
+	# Step 3: delete soft-dependency artifacts now that workspace is clean
+	for doctype, names in deps.items():
+		for name in names:
+			try:
+				frappe.delete_doc(doctype, name, force=True, ignore_permissions=True)
+			except Exception as e:
+				frappe.log_error(title=f"Delete {doctype} '{name}' failed", message=str(e))
+	if any(deps.values()):
 		frappe.db.commit()
-	except Exception as e:
-		frappe.log_error(title=f"Drop table failed: {table_name}", message=str(e))
 
-	# Delete DocType record
+	# Step 5: delete the DocType — Frappe handles table drop + hard deps automatically
 	if frappe.db.exists("DocType", doctype_name):
 		try:
 			frappe.delete_doc("DocType", doctype_name, force=True, ignore_permissions=True)
 			frappe.db.commit()
 		except Exception as e:
 			frappe.log_error(title=f"Delete DocType failed: {doctype_name}", message=str(e))
-			# Table is already dropped, so user can re-mirror; DocType orphan may need manual cleanup
 
 
 class WPTables(Document):

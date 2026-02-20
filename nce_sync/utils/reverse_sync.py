@@ -64,13 +64,17 @@ def _next_temp_name():
 
 def _is_mirrored_doctype(doctype):
 	"""Return the WP Tables doc if *doctype* is a mirrored NCE Sync table."""
-	result = frappe.db.get_value(
-		"WP Tables",
-		{"frappe_doctype": doctype, "mirror_status": "Mirrored"},
-		["name", "frappe_doctype", "name_field_column"],
-		as_dict=True,
-	)
-	return result  # None if not mirrored
+	if not frappe.db.table_exists("WP Tables"):
+		return None
+	try:
+		return frappe.db.get_value(
+			"WP Tables",
+			{"frappe_doctype": doctype, "mirror_status": "Mirrored"},
+			["name", "frappe_doctype", "name_field_column"],
+			as_dict=True,
+		)
+	except Exception:
+		return None
 
 
 # ---------------------------------------------------------------------------

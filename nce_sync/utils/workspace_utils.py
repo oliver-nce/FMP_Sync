@@ -100,38 +100,54 @@ def add_to_workspace(doctype_name, label=None):
 	frappe.clear_cache()
 
 
-def remove_from_workspace(doctype_name):
+def remove_from_workspace(doctype_name, soft_deps=None):
 	"""
-	Remove a mirrored DocType's shortcut card from the NCE Sync workspace.
+	Remove a mirrored DocType and all its soft-dependency artifacts from the workspace.
+
+	Must be called BEFORE any artifacts are deleted so that workspace.save()
+	validation only ever sees documents that still exist at save time.
 
 	Args:
-		doctype_name: Name of the DocType to remove
+		doctype_name: Name of the DocType being removed.
+		soft_deps: Optional dict {doctype: [names]} of artifact documents to also
+		           evict from workspace links (e.g. Reports, Charts, Scripts).
 	"""
 	if not frappe.db.exists("Workspace", WORKSPACE_NAME):
 		return
 
 	workspace = frappe.get_doc("Workspace", WORKSPACE_NAME)
 
-	# Remove from content JSON
 	try:
 		content = json.loads(workspace.content) if workspace.content else []
 	except json.JSONDecodeError:
 		content = []
 
+	# Build the set of all artifact names to evict from workspace links
+	artifact_names_to_remove = set()
+	if soft_deps:
+		for names in soft_deps.values():
+			artifact_names_to_remove.update(names)
+
+	# Remove the DocType shortcut from content JSON
 	content = [
-		item
-		for item in content
+		item for item in content
 		if not (item.get("type") == "shortcut" and item.get("data", {}).get("shortcut_name") == doctype_name)
 	]
 
-	# Remove from shortcuts child table
+	# Remove the DocType from shortcuts child table
 	workspace.shortcuts = [s for s in workspace.shortcuts if s.link_to != doctype_name]
 
-	# Save
+	# Remove workspace links for all soft-dependency artifacts
+	# Done while those docs still exist so Frappe's validation passes on save.
+	if artifact_names_to_remove:
+		workspace.links = [
+			lnk for lnk in workspace.links
+			if lnk.link_to not in artifact_names_to_remove
+		]
+
 	workspace.content = json.dumps(content)
 	workspace.save(ignore_permissions=True)
 	frappe.db.commit()
-
 	frappe.clear_cache()
 
 

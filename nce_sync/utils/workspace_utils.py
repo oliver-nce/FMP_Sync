@@ -151,6 +151,36 @@ def remove_from_workspace(doctype_name, soft_deps=None):
 	frappe.clear_cache()
 
 
+def sync_tables_workspace_shortcuts():
+	"""
+	Ensure mirrored table shortcuts are present in the Tables workspace.
+	Called when /app/tables loads. Fixes Table Links Workspace Link if needed,
+	then adds any missing mirrored DocType shortcuts.
+	"""
+	if not frappe.db.exists("Workspace", WORKSPACE_NAME):
+		return
+
+	# Fix Table Links Workspace Link: link_type must be "Page" not "Link"
+	frappe.db.sql("""
+		UPDATE `tabWorkspace Link`
+		SET link_type = 'Page'
+		WHERE parent = %s AND parenttype = 'Workspace' AND label = 'Table Links' AND link_type = 'Link'
+	""", (WORKSPACE_NAME,))
+	frappe.db.commit()
+
+	# Add shortcuts for all mirrored WP Tables that don't have one yet
+	wp_tables = frappe.get_all(
+		"WP Tables",
+		filters={"mirror_status": "Mirrored", "frappe_doctype": ["!=", ""]},
+		fields=["frappe_doctype", "nce_name"],
+	)
+	for row in wp_tables:
+		try:
+			add_to_workspace(row.frappe_doctype, label=row.nce_name or row.frappe_doctype)
+		except Exception:
+			pass  # Skip if add fails (e.g. DocType deleted)
+
+
 @frappe.whitelist()
 def is_in_workspace(doctype_name):
 	"""Check if a DocType already has a shortcut in the Tables workspace."""
@@ -183,8 +213,8 @@ def cleanup_orphaned_shortcuts():
 	except json.JSONDecodeError:
 		content = []
 
-	# Core DocTypes that should never be removed
-	core_doctypes = {"WordPress Connection", "WP Tables", "Sync Manager"}
+	# Core items that should never be removed (DocTypes + Table Links page)
+	core_doctypes = {"WordPress Connection", "WP Tables", "Sync Manager", "Sync Log", "Table Links"}
 
 	# Find orphaned shortcuts (DocType no longer exists, excluding core)
 	cleaned_content = []

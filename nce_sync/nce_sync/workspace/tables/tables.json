@@ -1,6 +1,6 @@
 {
  "charts": [],
- "content": "[{\"id\": \"wp_conn_shortcut\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"WordPress Connection\", \"col\": 4}}, {\"id\": \"wp_tables_shortcut\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"WP Tables\", \"col\": 4}}, {\"id\": \"sync_manager_shortcut\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Sync Manager\", \"col\": 4}}, {\"id\": \"sync_log_shortcut\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Sync Log\", \"col\": 4}}]",
+ "content": "[{\"id\": \"wp_conn_shortcut\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"WordPress Connection\", \"col\": 4}}, {\"id\": \"wp_tables_shortcut\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"WP Tables\", \"col\": 4}}, {\"id\": \"sync_manager_shortcut\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Sync Manager\", \"col\": 4}}, {\"id\": \"sync_log_shortcut\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Sync Log\", \"col\": 4}}, {\"id\": \"table_links_shortcut\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Table Links\", \"col\": 4}}, {\"id\": \"0a8fe1049a\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Event Sessions\", \"col\": 4}}, {\"id\": \"00783d22b9\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Family Members\", \"col\": 4}}, {\"id\": \"e5e4d67394\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Families\", \"col\": 4}}, {\"id\": \"e5e67e8e36\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Registrations\", \"col\": 4}}, {\"id\": \"2ba7469648\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Venues\", \"col\": 4}}, {\"id\": \"da141c97a7\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Events\", \"col\": 4}}]",
  "creation": "2026-02-06 00:00:00",
  "custom_blocks": [],
  "docstatus": 0,
@@ -61,9 +61,19 @@
    "link_type": "DocType",
    "onboard": 0,
    "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Table Links",
+   "link_count": 0,
+   "link_to": "table-links",
+   "link_type": "Page",
+   "onboard": 0,
+   "type": "Link"
   }
  ],
- "modified": "2026-02-19 21:40:02.264689",
+ "modified": "2026-02-20 10:12:19.144330",
  "modified_by": "Administrator",
  "module": "NCE Sync",
  "name": "Tables",
@@ -104,6 +114,49 @@
    "label": "Sync Log",
    "link_to": "Sync Log",
    "stats_filter": "[]",
+   "type": "DocType"
+  },
+  {
+   "color": "Blue",
+   "doc_view": "",
+   "label": "Table Links",
+   "link_to": "table-links",
+   "type": "Page"
+  },
+  {
+   "doc_view": "List",
+   "label": "Event Sessions",
+   "link_to": "Event Sessions",
+   "type": "DocType"
+  },
+  {
+   "doc_view": "List",
+   "label": "Family Members",
+   "link_to": "Family Members",
+   "type": "DocType"
+  },
+  {
+   "doc_view": "List",
+   "label": "Families",
+   "link_to": "Families",
+   "type": "DocType"
+  },
+  {
+   "doc_view": "List",
+   "label": "Registrations",
+   "link_to": "Registrations",
+   "type": "DocType"
+  },
+  {
+   "doc_view": "List",
+   "label": "Venues",
+   "link_to": "Venues",
+   "type": "DocType"
+  },
+  {
+   "doc_view": "List",
+   "label": "Events",
+   "link_to": "Events",
    "type": "DocType"
   }
  ],

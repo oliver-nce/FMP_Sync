@@ -1,5 +1,5 @@
 app_name = "nce_sync"
-app_title = "NCE Tables"
+app_title = "Tables"
 app_publisher = "Oliver Reid"
 app_description = "For syncing WP tables and Frappe"
 app_email = "oreid@firstgm.com"
@@ -15,7 +15,7 @@ add_to_apps_screen = [
 	{
 		"name": "nce_sync",
 		"logo": "/assets/nce_sync/images/logo.png",
-		"title": "NCE Tables",
+		"title": "Tables",
 		"route": "/app/tables",
 	}
 ]
@@ -167,9 +167,9 @@ scheduler_events = {
 # Overriding Methods
 # ------------------------------
 #
-# override_whitelisted_methods = {
-# 	"frappe.desk.doctype.event.event.get_events": "nce_sync.event.get_events"
-# }
+override_whitelisted_methods = {
+	"frappe.desk.desktop.get_desktop_page": "nce_sync.overrides.get_desktop_page",
+}
 #
 # each overriding function accepts a `data` argument;
 # generated from the base implementation of the doctype dashboard,

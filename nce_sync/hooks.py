@@ -135,6 +135,9 @@ doc_events = {
 	"DocType": {
 		"after_insert": "nce_sync.utils.workspace_utils.on_doctype_change",
 		"on_trash": "nce_sync.utils.workspace_utils.on_doctype_change"
+	},
+	"*": {
+		"before_insert": "nce_sync.utils.reverse_sync.assign_temp_name"
 	}
 }
 

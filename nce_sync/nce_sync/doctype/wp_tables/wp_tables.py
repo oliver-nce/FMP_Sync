@@ -7,6 +7,60 @@ import frappe
 from frappe import _
 from frappe.model.document import Document
 
+# Core Frappe DocType names - never drop these tables (safety guard)
+_NEVER_DROP_DOCTYPES = frozenset({
+	"DocType", "DocField", "DocPerm", "DocType Action", "DocType Link",
+	"User", "User Permission", "Role", "Module Def", "File",
+	"Error Log", "Error Snapshot", "Scheduled Job Log", "Activity Log",
+	"Singles", "DefaultValue", "Property Setter", "Custom Field",
+	"Workflow", "Workflow State", "Workflow Action", "Workflow Transition",
+})
+
+
+def _is_safe_to_drop_table(doctype_name):
+	"""Return False if dropping this table could harm core Frappe."""
+	if not doctype_name or "`" in doctype_name or ";" in doctype_name:
+		return False
+	if doctype_name in _NEVER_DROP_DOCTYPES:
+		return False
+	# Also block any non-custom DocType (core/system)
+	if frappe.db.exists("DocType", doctype_name):
+		is_custom = frappe.db.get_value("DocType", doctype_name, "custom")
+		if not is_custom:
+			return False
+	return True
+
+
+def _delete_mirrored_doctype(doctype_name):
+	"""
+	Fully remove a mirrored DocType: workspace shortcut, DocType record, and DB table.
+	Frappe often leaves orphaned tables when deleting DocTypes, so we explicitly drop
+	the table first, then delete the DocType. This guarantees the table is gone.
+	Never drops core Frappe tables (guard rail).
+	"""
+	if not _is_safe_to_drop_table(doctype_name):
+		return
+	from nce_sync.utils.workspace_utils import remove_from_workspace
+
+	remove_from_workspace(doctype_name)
+
+	# Drop table FIRST - guarantees it's gone even if DocType delete fails
+	table_name = f"tab{doctype_name}"
+	try:
+		frappe.db.sql(f"DROP TABLE IF EXISTS `{table_name}`")
+		frappe.db.commit()
+	except Exception as e:
+		frappe.log_error(title=f"Drop table failed: {table_name}", message=str(e))
+
+	# Delete DocType record
+	if frappe.db.exists("DocType", doctype_name):
+		try:
+			frappe.delete_doc("DocType", doctype_name, force=True, ignore_permissions=True)
+			frappe.db.commit()
+		except Exception as e:
+			frappe.log_error(title=f"Delete DocType failed: {doctype_name}", message=str(e))
+			# Table is already dropped, so user can re-mirror; DocType orphan may need manual cleanup
+
 
 class WPTables(Document):
 	"""Tracks WordPress tables selected for mirroring."""
@@ -17,18 +71,14 @@ class WPTables(Document):
 
 	def on_trash(self):
 		"""Full cascade cleanup: delete Sync Logs, mirrored DocType, and workspace shortcut."""
-		from nce_sync.utils.workspace_utils import remove_from_workspace
-
 		# Delete associated Sync Log records
 		sync_logs = frappe.get_all("Sync Log", filters={"wp_table": self.name}, pluck="name")
 		for log_name in sync_logs:
 			frappe.delete_doc("Sync Log", log_name, force=True, ignore_permissions=True)
 
-		# Delete mirrored DocType and remove from workspace
+		# Delete mirrored DocType (table + record) - drop table first so it always works
 		if self.frappe_doctype:
-			remove_from_workspace(self.frappe_doctype)
-			if frappe.db.exists("DocType", self.frappe_doctype):
-				frappe.delete_doc("DocType", self.frappe_doctype, force=True, ignore_permissions=True)
+			_delete_mirrored_doctype(self.frappe_doctype)
 
 	def validate(self):
 		"""Validate and enforce source-of-truth hierarchy."""
@@ -90,7 +140,7 @@ class WPTables(Document):
 		return preview_table_schema(wp_conn, self)
 
 	@frappe.whitelist()
-	def mirror_schema(self, field_overrides=None, label_overrides=None, matching_fields=None):
+	def mirror_schema(self, field_overrides=None, label_overrides=None, matching_fields=None, name_field_column=None, auto_generated_columns=None, modified_ts_field=None, created_ts_field=None):
 		"""Mirror this specific table's schema to a Frappe DocType."""
 		try:
 			from nce_sync.utils.schema_mirror import mirror_table_schema
@@ -116,7 +166,14 @@ class WPTables(Document):
 				frappe.throw(_("WordPress Connection not configured"))
 
 			mirror_table_schema(
-				wp_conn, self, field_overrides=field_overrides, label_overrides=label_overrides
+				wp_conn,
+				self,
+				field_overrides=field_overrides,
+				label_overrides=label_overrides,
+				name_field_column=name_field_column or None,
+				auto_generated_columns=auto_generated_columns or None,
+				modified_ts_field=modified_ts_field or None,
+				created_ts_field=created_ts_field or None,
 			)
 
 			frappe.msgprint(
@@ -139,19 +196,11 @@ class WPTables(Document):
 		Delete the generated DocType and remove from workspace.
 		Resets this WP Tables entry back to Pending so it can be re-mirrored.
 		"""
-		from nce_sync.utils.workspace_utils import remove_from_workspace
-
 		doctype_name = self.frappe_doctype
 		if not doctype_name:
 			frappe.throw(_("No mirrored DocType to delete"))
 
-		# Remove from workspace first
-		remove_from_workspace(doctype_name)
-
-		# Delete the generated DocType
-		if frappe.db.exists("DocType", doctype_name):
-			frappe.delete_doc("DocType", doctype_name, force=True, ignore_permissions=True)
-			frappe.db.commit()
+		_delete_mirrored_doctype(doctype_name)
 
 		# Reset this WP Tables entry
 		self.frappe_doctype = None
@@ -170,17 +219,9 @@ class WPTables(Document):
 		Full cleanup: delete the generated DocType, remove from workspace,
 		and delete this WP Tables record itself.
 		"""
-		from nce_sync.utils.workspace_utils import remove_from_workspace
-
 		doctype_name = self.frappe_doctype
-
-		# Remove from workspace
 		if doctype_name:
-			remove_from_workspace(doctype_name)
-
-			# Delete the generated DocType
-			if frappe.db.exists("DocType", doctype_name):
-				frappe.delete_doc("DocType", doctype_name, force=True, ignore_permissions=True)
+			_delete_mirrored_doctype(doctype_name)
 
 		# Delete this WP Tables record
 		table_name = self.table_name
@@ -226,19 +267,27 @@ class WPTables(Document):
 		schema = get_table_schema(conn, self.table_name)
 		conn.close()
 
-		# Build column mapping: WP column name -> {fieldname, is_virtual}
-		# Sanitize fieldnames to handle Frappe restricted names (e.g., 'name' -> 'name_field')
+		# Build column mapping: WP column name -> {fieldname, is_virtual[, is_name]}
+		# When name_field_column is set, that column maps to "name" with is_name=True
 		column_mapping = {}
 		virtual_count = 0
+		name_field_column = getattr(self, "name_field_column", None)
 		for col in schema["columns"]:
 			wp_col_name = col["COLUMN_NAME"]
-			frappe_fieldname = sanitize_fieldname(wp_col_name.lower())
 			extra = col.get("EXTRA", "") or ""
 			is_virtual = "VIRTUAL" in extra.upper() or "GENERATED" in extra.upper()
-			column_mapping[wp_col_name] = {
-				"fieldname": frappe_fieldname,
-				"is_virtual": is_virtual,
-			}
+			if name_field_column and wp_col_name == name_field_column:
+				column_mapping[wp_col_name] = {
+					"fieldname": "name",
+					"is_virtual": is_virtual,
+					"is_name": True,
+				}
+			else:
+				frappe_fieldname = sanitize_fieldname(wp_col_name.lower())
+				column_mapping[wp_col_name] = {
+					"fieldname": frappe_fieldname,
+					"is_virtual": is_virtual,
+				}
 			if is_virtual:
 				virtual_count += 1
 
@@ -361,6 +410,7 @@ class WPTables(Document):
 			queue="long",
 			timeout=3600,
 			wp_table_name=self.name,
+			user=frappe.session.user,
 		)
 
 		frappe.msgprint(

@@ -3,7 +3,9 @@
 
 """
 Data synchronization utilities for NCE_Sync.
-Handles one-way sync from WordPress tables to Frappe DocTypes.
+Handles bidirectional sync between WordPress tables and Frappe DocTypes.
+Primary direction: WordPress → Frappe (TS Compare / Truncate & Replace).
+Reverse direction: Frappe → WordPress (INSERT new records, UPDATE existing).
 """
 
 import json
@@ -169,10 +171,20 @@ def sync_table(wp_table_doc):
 			# Default to TS Compare
 			result = _sync_ts_compare(conn, wp_table_doc, wp_conn_doc, wp_table_doc.frappe_doctype, ts_field)
 
-		return result
-
 	finally:
 		conn.close()
+
+	# Reverse sync: push Frappe-created records back to WordPress
+	# Only runs when direction is explicitly "Both" and the WP PK maps to Frappe name
+	sync_direction = getattr(wp_table_doc, "sync_direction", "WP to Frappe") or "WP to Frappe"
+	if sync_direction != "WP to Frappe" and getattr(wp_table_doc, "name_field_column", None):
+		from nce_sync.utils.reverse_sync import sync_frappe_to_wp
+		reverse_result = sync_frappe_to_wp(wp_table_doc)
+		result["reverse_inserted"] = reverse_result.get("inserted", 0)
+		result["reverse_updated"] = reverse_result.get("updated", 0)
+		result["reverse_errors"] = reverse_result.get("errors", 0)
+
+	return result
 
 
 def _get_effective_ts_field(wp_table_doc):
@@ -235,6 +247,7 @@ def _get_matching_keys(wp_table_doc):
 	"""
 	Parse matching_fields from the WP Tables document.
 	Converts WP column names to Frappe fieldnames using column_mapping.
+	When name_field_column is set, returns ["name"] for fast direct lookup.
 
 	Args:
 		wp_table_doc: WP Tables document
@@ -242,6 +255,11 @@ def _get_matching_keys(wp_table_doc):
 	Returns:
 		list of Frappe fieldnames to use as matching keys
 	"""
+	# When name_field_column is set, use direct name lookup (faster)
+	name_field_column = getattr(wp_table_doc, "name_field_column", None)
+	if name_field_column:
+		return ["name"]
+
 	if not wp_table_doc.matching_fields:
 		frappe.throw(
 			_(
@@ -326,22 +344,23 @@ def _get_cutoff_timestamp(frappe_doctype, frappe_ts_field, wp_tz):
 	return convert_frappe_ts_to_wp_tz(cutoff, wp_tz)
 
 
-def _publish_sync_progress(table_name, rows_processed, total_rows):
+def _publish_sync_progress(table_name, rows_processed, total_rows, user=None):
 	"""
 	Publish sync progress as toast notifications via realtime.
-	Uses the built-in 'msgprint' event so Frappe shows toasts automatically.
+	Targets the user who triggered the sync so toasts reach their browser.
 
 	Args:
 		table_name: WP Tables document name
 		rows_processed: Number of rows processed so far
 		total_rows: Total rows expected
+		user: Username to target (required for background jobs; worker has no session)
 	"""
 	message = f"{table_name}: {rows_processed} of {total_rows} rows uploaded"
-	frappe.publish_realtime("msgprint", {
-		"message": message,
-		"indicator": "blue",
-		"alert": 1,
-	})
+	frappe.publish_realtime(
+		"msgprint",
+		{"message": message, "indicator": "blue", "alert": 1},
+		user=user,
+	)
 	# Also update the doc so progress is visible on page refresh
 	frappe.db.set_value("WP Tables", table_name, "last_sync_log", f"Syncing: {rows_processed} of {total_rows} rows uploaded", update_modified=False)
 	frappe.db.commit()
@@ -473,16 +492,21 @@ def _sync_ts_compare(conn, wp_table_doc, wp_conn_doc, frappe_doctype, ts_field):
 			_upsert_record(frappe_doctype, matching_keys, converted_row)
 			rows_upserted += 1
 
-			# Progress update every 1000 rows
-			if rows_upserted % 1000 == 0:
-				_publish_sync_progress(wp_table_doc.name, rows_upserted, total_to_sync)
+			# Progress update every 500 rows (also catches small tables)
+			if rows_upserted % 500 == 0:
+				_publish_sync_progress(
+					wp_table_doc.name, rows_upserted, total_to_sync,
+					user=getattr(wp_table_doc, "_sync_user", None),
+				)
 
 		# Commit after each batch
 		frappe.db.commit()
 
-	# Final progress update
-	if total_to_sync > 0:
-		_publish_sync_progress(wp_table_doc.name, rows_upserted, total_to_sync)
+	# Final progress update (always fires, so small tables always get at least one toast)
+	_publish_sync_progress(
+		wp_table_doc.name, rows_upserted, total_to_sync,
+		user=getattr(wp_table_doc, "_sync_user", None),
+	)
 
 	return {
 		"method": "TS Compare",
@@ -538,16 +562,21 @@ def _sync_truncate_replace(conn, wp_table_doc, wp_conn_doc, frappe_doctype):
 			_insert_record(frappe_doctype, converted_row)
 			rows_inserted += 1
 
-			# Progress update every 1000 rows
-			if rows_inserted % 1000 == 0:
-				_publish_sync_progress(wp_table_doc.name, rows_inserted, total_to_sync)
+			# Progress update every 500 rows (also catches small tables)
+			if rows_inserted % 500 == 0:
+				_publish_sync_progress(
+					wp_table_doc.name, rows_inserted, total_to_sync,
+					user=getattr(wp_table_doc, "_sync_user", None),
+				)
 
 		# Commit after each batch
 		frappe.db.commit()
 
-	# Final progress update
-	if total_to_sync > 0:
-		_publish_sync_progress(wp_table_doc.name, rows_inserted, total_to_sync)
+	# Final progress update (always fires)
+	_publish_sync_progress(
+		wp_table_doc.name, rows_inserted, total_to_sync,
+		user=getattr(wp_table_doc, "_sync_user", None),
+	)
 
 	return {
 		"method": "Truncate & Replace",
@@ -578,6 +607,10 @@ def _convert_row(row, wp_tz, column_mapping=None):
 
 		if isinstance(value, datetime):
 			converted[frappe_key] = _convert_wp_ts_to_frappe_tz(value, wp_tz)
+		elif frappe_key == "name" and value is not None:
+			# Frappe name is always varchar — cast to str so integer PKs
+			# (e.g. WP auto_increment id) match correctly on subsequent syncs
+			converted[frappe_key] = str(value)
 		else:
 			converted[frappe_key] = value
 	return converted
@@ -586,17 +619,24 @@ def _convert_row(row, wp_tz, column_mapping=None):
 def _upsert_record(frappe_doctype, matching_keys, row_data):
 	"""
 	Insert or update a single Frappe document by matching key lookup.
+	When matching_keys is ["name"], uses direct frappe.db.exists for faster lookup.
 
 	Args:
 		frappe_doctype: Name of the Frappe DocType
 		matching_keys: List of field names to match on
 		row_data: Dict of field values from WordPress
 	"""
-	# Build filter for matching keys
-	filters = {key: row_data.get(key) for key in matching_keys}
-
-	# Check if record exists
-	existing = frappe.db.get_value(frappe_doctype, filters, "name")
+	# Check if record exists - use direct name lookup when matching on name (faster)
+	if matching_keys == ["name"]:
+		name_value = row_data.get("name")
+		# Always coerce to str — Frappe name is varchar, WP PK may be an integer
+		if name_value is not None:
+			name_value = str(name_value)
+			row_data["name"] = name_value
+		existing = frappe.db.exists(frappe_doctype, name_value) if name_value is not None else None
+	else:
+		filters = {key: row_data.get(key) for key in matching_keys}
+		existing = frappe.db.get_value(frappe_doctype, filters, "name")
 
 	# Get valid field names from DocType meta
 	valid_fields = {df.fieldname for df in frappe.get_meta(frappe_doctype).fields}
@@ -631,6 +671,9 @@ def _insert_record(frappe_doctype, row_data):
 
 	for key, value in row_data.items():
 		if key in valid_fields:
+			# Frappe name is varchar — guard against integer values from WP PKs
+			if key == "name" and value is not None:
+				value = str(value)
 			doc.set(key, value)
 
 	doc.flags.ignore_permissions = True
@@ -641,6 +684,10 @@ def _insert_record(frappe_doctype, row_data):
 def _delete_orphans(frappe_doctype, matching_keys, wp_key_set):
 	"""
 	Delete Frappe records whose matching keys are not in the WordPress key set.
+
+	Skips records with negative integer names — those are new records created
+	locally in Frappe (temp IDs) that have not yet been pushed to WordPress.
+	Only deletes records with real positive WP IDs that no longer exist in the source.
 
 	Args:
 		frappe_doctype: Name of the Frappe DocType
@@ -655,6 +702,13 @@ def _delete_orphans(frappe_doctype, matching_keys, wp_key_set):
 
 	deleted_count = 0
 	for record in frappe_records:
+		# Skip temp records (negative integer names) — not yet pushed to WP
+		try:
+			if int(record.name) < 0:
+				continue
+		except (ValueError, TypeError):
+			pass  # Non-integer name — treat as real record, proceed normally
+
 		# Build key tuple for this Frappe record (normalized for comparison)
 		frappe_key = tuple(_normalize_key_value(record.get(k)) for k in matching_keys)
 
@@ -820,32 +874,44 @@ def _cleanup_old_sync_logs(keep_count=20):
 		frappe.db.commit()
 
 
-def run_sync_for_table(wp_table_name):
+def run_sync_for_table(wp_table_name, user=None):
 	"""
 	Background-job entry point: load the WP Tables doc by name and sync it.
-	Sends toast notifications on completion or error.
+	Sends toast notifications on completion or error to the user who triggered it.
 
 	Args:
 		wp_table_name: Name (primary key) of the WP Tables document
+		user: Username to receive progress toasts (from frappe.session.user when enqueued)
 	"""
 	wp_table_doc = frappe.get_doc("WP Tables", wp_table_name)
+	wp_table_doc._sync_user = user or frappe.session.user
 	label = wp_table_doc.nce_name or wp_table_doc.table_name
 
 	try:
 		_run_sync_with_status(wp_table_doc)
 
-		frappe.publish_realtime("msgprint", {
-			"message": f"{label}: Sync complete",
-			"indicator": "green",
-			"alert": 1,
-		})
+		frappe.db.commit()
+		frappe.publish_realtime(
+			"msgprint",
+			{"message": f"{label}: Sync complete ✓", "indicator": "green", "alert": True},
+			user=wp_table_doc._sync_user,
+		)
 	except Exception as e:
-		frappe.publish_realtime("msgprint", {
-			"message": f"{label}: Sync failed — {str(e)[:120]}",
-			"indicator": "red",
-			"alert": 1,
-		})
+		frappe.db.commit()
+		frappe.publish_realtime(
+			"msgprint",
+			{"message": f"{label}: Sync failed — {str(e)[:120]}", "indicator": "red", "alert": True},
+			user=wp_table_doc._sync_user,
+		)
 		raise
+	finally:
+		# Tell the open form to reload so the status badge updates
+		frappe.publish_realtime(
+			"doc_update",
+			{"doctype": "WP Tables", "name": wp_table_name},
+			doctype="WP Tables",
+			docname=wp_table_name,
+		)
 
 
 def _run_sync_with_status(wp_table_doc):

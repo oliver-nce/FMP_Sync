@@ -5,22 +5,22 @@ frappe.listview_settings["WP Tables"] = {
 	add_fields: ["auto_sync_active", "mirror_status", "last_sync_status"],
 
 	get_indicator: function (doc) {
-		// Show status indicator based on mirror_status and last_sync_status
 		if (doc.mirror_status === "Error") {
 			return [__("Error"), "red", "mirror_status,=,Error"];
 		}
 		if (doc.mirror_status === "Pending") {
 			return [__("Pending"), "orange", "mirror_status,=,Pending"];
 		}
-		if (doc.last_sync_status === "Error") {
-			return [__("Sync Error"), "red", "last_sync_status,=,Error"];
-		}
 		if (doc.last_sync_status === "Running") {
 			return [__("Syncing"), "blue", "last_sync_status,=,Running"];
 		}
-		if (doc.auto_sync_active) {
-			return [__("Auto Sync"), "green", "auto_sync_active,=,1"];
+		if (doc.last_sync_status === "Error") {
+			return [__("Sync Error"), "red", "last_sync_status,=,Error"];
 		}
+		if (doc.last_sync_status === "Success") {
+			return [__("Synced"), "green", "last_sync_status,=,Success"];
+		}
+		// Mirrored but never synced
 		return [__("Mirrored"), "blue", "mirror_status,=,Mirrored"];
 	},
 

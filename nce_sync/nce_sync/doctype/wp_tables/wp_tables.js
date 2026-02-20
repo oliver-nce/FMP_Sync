@@ -44,6 +44,19 @@ frappe.ui.form.on("WP Tables", {
 	refresh: function (frm) {
 		if (frm.is_new()) return;
 
+		// Set form title badge based on sync + mirror state
+		if (frm.doc.mirror_status === "Pending") {
+			frm.page.set_indicator(__("Pending"), "orange");
+		} else if (frm.doc.last_sync_status === "Running") {
+			frm.page.set_indicator(__("Syncing"), "blue");
+		} else if (frm.doc.last_sync_status === "Error") {
+			frm.page.set_indicator(__("Sync Error"), "red");
+		} else if (frm.doc.last_sync_status === "Success") {
+			frm.page.set_indicator(__("Synced"), "green");
+		} else if (frm.doc.mirror_status === "Mirrored") {
+			frm.page.set_indicator(__("Mirrored"), "blue");
+		}
+
 		// Mirror Schema button — always available
 		frm.add_custom_button(
 			__("Mirror Schema"),
@@ -65,7 +78,7 @@ frappe.ui.form.on("WP Tables", {
 
 		// Only show sync and cleanup buttons when a mirror exists
 		if (frm.doc.mirror_status === "Mirrored" && frm.doc.frappe_doctype) {
-			// Sync Now button - enqueues background sync with toast progress
+			// Sync Now button - enqueues background sync and opens live progress dialog
 			frm.add_custom_button(
 				__("Sync Now"),
 				function () {
@@ -73,7 +86,7 @@ frappe.ui.form.on("WP Tables", {
 						method: "sync_now",
 						doc: frm.doc,
 						callback: function (r) {
-							frm.reload_doc();
+							show_sync_progress_dialog(frm);
 						},
 						error: function (r) {
 							frm.reload_doc();
@@ -219,6 +232,7 @@ function show_preview_dialog(frm, preview_data) {
 	let fields = preview_data.fields;
 	let doctype_name = preview_data.doctype_name;
 	let previous_matching = preview_data.previous_matching_fields || [];
+	let previous_name_column = preview_data.previous_name_field_column || null;
 
 	let d = new frappe.ui.Dialog({
 		title: __("Review Field Types — {0}", [doctype_name]),
@@ -252,22 +266,50 @@ function show_preview_dialog(frm, preview_data) {
 				}
 			});
 
-			// Collect matching fields (up to 3 selected checkboxes)
+			// Collect "Use as Name" selection (mutually exclusive radio)
+			let name_field_column = d.$wrapper.find(".name-field-radio:checked").val() || "";
+
+			// Collect matching fields (up to 3 selected checkboxes) - disabled when Name is used
 			let matching_fields = [];
-			d.$wrapper.find(".matching-field-checkbox:checked").each(function () {
-				matching_fields.push($(this).data("column"));
+			if (!name_field_column) {
+				d.$wrapper.find(".matching-field-checkbox:checked").each(function () {
+					matching_fields.push($(this).data("column"));
+				});
+			} else {
+				// When Name column is used, it IS the sole match key - pass it as matching_fields for consistency
+				matching_fields = [name_field_column];
+			}
+
+			// Collect auto-generated columns
+			let auto_generated_columns = [];
+			d.$wrapper.find(".auto-generated-checkbox:checked").each(function () {
+				auto_generated_columns.push($(this).data("column"));
 			});
 
-			// Validate: max 3 matching fields
-			if (matching_fields.length > 3) {
+			// Collect timestamp field selections
+			let modified_ts_field = d.$wrapper.find(".mod-ts-radio:checked").val() || "";
+			let created_ts_field = d.$wrapper.find(".crt-ts-radio:checked").val() || "";
+
+			// Validate: max 3 matching fields (when not using Name)
+			if (!name_field_column && matching_fields.length > 3) {
 				frappe.msgprint(__("Please select a maximum of 3 matching fields."));
+				return;
+			}
+			if (!name_field_column && matching_fields.length === 0) {
+				frappe.msgprint(__("Please select at least one matching field, or use a column as Name."));
+				return;
+			}
+
+			// Validate: Modified TS is mandatory
+			if (!modified_ts_field) {
+				frappe.msgprint(__("Please select a Modified Timestamp field (Mod TS column)."));
 				return;
 			}
 
 			// Disable button to prevent double-clicks while processing
 			d.get_primary_btn().prop("disabled", true).text(__("Creating…"));
 
-			// Mirror with user-confirmed field types, labels, and matching fields
+			// Mirror with user-confirmed field types, labels, matching fields, name column, auto-generated columns, and timestamps
 			frappe.call({
 				method: "mirror_schema",
 				doc: frm.doc,
@@ -275,12 +317,16 @@ function show_preview_dialog(frm, preview_data) {
 					field_overrides: JSON.stringify(field_overrides),
 					label_overrides: JSON.stringify(label_overrides),
 					matching_fields: matching_fields.join(","),
+					name_field_column: name_field_column || undefined,
+					auto_generated_columns: auto_generated_columns.join(",") || undefined,
+					modified_ts_field: modified_ts_field || undefined,
+					created_ts_field: created_ts_field || undefined,
 				},
 				freeze: true,
 				freeze_message: __("Creating DocType..."),
 				callback: function (r) {
 					d.hide();
-					window.location.href = "/app/tables";
+					frm.reload_doc();
 				},
 				error: function (r) {
 					// Re-enable button so the user can retry after fixing the issue
@@ -300,18 +346,34 @@ function show_preview_dialog(frm, preview_data) {
 			<span class="text-muted"><strong>${__("Matching Fields:")}</strong> ${__(
 		"Select up to 3 fields to use for matching records during sync (useful when the table lacks unique keys)."
 	)}</span>
+		<br>
+		<span class="text-muted"><strong>${__("Frappe ID:")}</strong> ${__(
+		"Select one column to use as Frappe's record ID (skips field creation, enables fast direct lookup)."
+	)}</span>
+		<br>
+		<span class="text-muted"><strong>${__("Auto:")}</strong> ${__(
+		"Mark columns that are auto-generated by the source (e.g. auto_increment). These will be skipped when writing records back to the source."
+	)}</span>
+		<br>
+		<span class="text-muted"><strong>${__("Mod TS / Created TS:")}</strong> ${__(
+		"Pick the modified-timestamp field (required) and optionally the created-timestamp field. Only datetime/timestamp columns are selectable."
+	)}</span>
 		</div>
 		<div style="max-height: 500px; overflow-y: auto;">
 			<table class="table table-bordered table-sm" style="font-size: 13px;">
 				<thead style="position: sticky; top: 0; background: var(--fg-color, #fff); z-index: 1;">
 					<tr>
 						<th style="width: 4%;">${__("Match")}</th>
-						<th style="width: 16%;">${__("Column")}</th>
-						<th style="width: 14%;">${__("DB Type")}</th>
-						<th style="width: 18%;">${__("Frappe Type")}</th>
-						<th style="width: 8%;">${__("Nullable")}</th>
-						<th style="width: 18%;">${__("Keys")}</th>
-						<th style="width: 22%;">${__("Label")}</th>
+						<th style="width: 4%;" title="${__("Map this column directly to Frappe\'s record ID (name field)")}">${__("Frappe ID")}</th>
+						<th style="width: 4%;">${__("Auto")}</th>
+						<th style="width: 5%;" title="${__("Modified timestamp — required")}"><span style="color:#d44;">${__("Mod TS")}</span></th>
+						<th style="width: 5%;" title="${__("Created timestamp — optional")}">${__("Crt TS")}</th>
+						<th style="width: 13%;">${__("Column")}</th>
+						<th style="width: 11%;">${__("DB Type")}</th>
+						<th style="width: 15%;">${__("Frappe Type")}</th>
+						<th style="width: 6%;">${__("Nullable")}</th>
+						<th style="width: 13%;">${__("Keys")}</th>
+						<th style="width: 20%;">${__("Label")}</th>
 					</tr>
 				</thead>
 				<tbody>
@@ -339,6 +401,7 @@ function show_preview_dialog(frm, preview_data) {
 		// Pre-check matching field checkbox:
 		// 1. If previously selected by user (from saved matching_fields)
 		// 2. Or if it's a PK or unique field (for new mirrors)
+		// When "Use as Name" is selected for a column, Match is disabled (that column IS the match key)
 		let checked = "";
 		if (previous_matching.length > 0) {
 			// Use previous user selection
@@ -348,12 +411,69 @@ function show_preview_dialog(frm, preview_data) {
 			checked = f.is_primary_key || f.is_unique ? "checked" : "";
 		}
 
+		// Pre-select "Use as Name" radio: previous selection, or only PK if exactly one
+		let pk_count = fields.filter((x) => x.is_primary_key).length;
+		let name_checked = "";
+		if (previous_name_column && previous_name_column === f.column_name) {
+			name_checked = "checked";
+		} else if (!previous_name_column && pk_count === 1 && f.is_primary_key) {
+			name_checked = "checked";
+		}
+
+		// Pre-check "Auto" if column is auto_increment (or user previously set it)
+		let previous_auto_generated = preview_data.previous_auto_generated_columns || [];
+		let auto_checked = "";
+		if (previous_auto_generated.includes(f.column_name.toLowerCase())) {
+			auto_checked = "checked";
+		} else if (!previous_auto_generated.length && f.is_auto_increment) {
+			auto_checked = "checked";
+		}
+
+		// Timestamp radio buttons — only enabled for datetime/timestamp columns
+		let is_datetime = ["datetime", "timestamp", "Datetime"].some(
+			(t) => f.db_type.toLowerCase().includes(t.toLowerCase())
+		);
+		let previous_mod_ts = (preview_data.previous_modified_ts || "").toLowerCase();
+		let previous_crt_ts = (preview_data.previous_created_ts || "").toLowerCase();
+		let col_lower = f.column_name.toLowerCase();
+
+		let mod_ts_cell = "";
+		let crt_ts_cell = "";
+		if (is_datetime) {
+			let mod_checked = previous_mod_ts && previous_mod_ts === col_lower ? "checked" : "";
+			// Default: pre-select first field named like "post_modified" / "updated_at" / "modified"
+			if (!mod_checked && !previous_mod_ts) {
+				if (/modif|updated/.test(col_lower)) mod_checked = "checked";
+			}
+			let crt_checked = previous_crt_ts && previous_crt_ts === col_lower ? "checked" : "";
+			if (!crt_checked && !previous_crt_ts) {
+				if (/creat|post_date(?!_gmt)/.test(col_lower)) crt_checked = "checked";
+			}
+			mod_ts_cell = `<input type="radio" name="mod_ts_radio" class="mod-ts-radio"
+				value="${f.column_name}" data-column="${f.column_name}" ${mod_checked}>`;
+			crt_ts_cell = `<input type="radio" name="crt_ts_radio" class="crt-ts-radio"
+				value="${f.column_name}" data-column="${f.column_name}" ${crt_checked}>`;
+		} else {
+			mod_ts_cell = `<span style="color:#ccc;" title="${__("Not a datetime column")}">—</span>`;
+			crt_ts_cell = `<span style="color:#ccc;" title="${__("Not a datetime column")}">—</span>`;
+		}
+
 		html += `
 			<tr ${row_class}>
 				<td style="text-align: center;">
 					<input type="checkbox" class="matching-field-checkbox"
 						data-column="${f.column_name}" ${checked}>
 				</td>
+				<td style="text-align: center;">
+					<input type="radio" name="name_field_radio" class="name-field-radio"
+						value="${f.column_name}" data-column="${f.column_name}" ${name_checked}>
+				</td>
+				<td style="text-align: center;">
+					<input type="checkbox" class="auto-generated-checkbox"
+						data-column="${f.column_name}" ${auto_checked}>
+				</td>
+				<td style="text-align: center;">${mod_ts_cell}</td>
+				<td style="text-align: center;">${crt_ts_cell}</td>
 				<td><strong>${f.column_name}</strong></td>
 				<td><code>${f.db_type}</code></td>
 				<td>
@@ -382,6 +502,54 @@ function show_preview_dialog(frm, preview_data) {
 	`;
 
 	d.fields_dict.field_preview.$wrapper.html(html);
+
+	// When "Frappe ID" radio is selected:
+	//  • Disable all Match checkboxes (the ID column IS the sole match key)
+	//  • Grey out the Frappe Type dropdown for that row (type is irrelevant — no field created)
+	function _refresh_frappe_id_state() {
+		let $checked_radio = d.$wrapper.find(".name-field-radio:checked");
+		let name_selected = $checked_radio.length > 0;
+		let id_col = name_selected ? $checked_radio.val() : null;
+
+		// Match checkboxes
+		d.$wrapper.find(".matching-field-checkbox").each(function () {
+			let $cb = $(this);
+			if (name_selected) {
+				$cb.prop("checked", false).prop("disabled", true);
+			} else {
+				$cb.prop("disabled", false);
+				let col = $cb.data("column");
+				let f = fields.find((x) => x.column_name === col);
+				if (f && previous_matching.length === 0 && (f.is_primary_key || f.is_unique)) {
+					$cb.prop("checked", true);
+				}
+			}
+		});
+
+		// Frappe Type dropdowns — disable + grey out only the selected ID column
+		// Also force its value to "Data" (Frappe name is always varchar)
+		d.$wrapper.find(".field-type-select").each(function () {
+			let col = $(this).data("column");
+			if (id_col && col === id_col) {
+				$(this)
+					.val("Data")
+					.prop("disabled", true)
+					.css({ opacity: "0.45", "pointer-events": "none" })
+					.attr("title", __("This column maps to Frappe's name field (varchar) — no separate field is created"));
+			} else {
+				$(this)
+					.prop("disabled", false)
+					.css({ opacity: "", "pointer-events": "" })
+					.removeAttr("title")
+					// Restore original proposed type when deselected
+					.val($(this).data("original"));
+			}
+		});
+	}
+
+	d.$wrapper.on("change", ".name-field-radio", _refresh_frappe_id_state);
+	// Trigger on load if Frappe ID was pre-selected
+	_refresh_frappe_id_state();
 
 	// Limit matching field selection to 3
 	d.$wrapper.on("change", ".matching-field-checkbox", function () {
@@ -420,4 +588,83 @@ function show_preview_dialog(frm, preview_data) {
 	});
 
 	d.show();
+}
+
+
+function show_sync_progress_dialog(frm) {
+	let label = frm.doc.nce_name || frm.doc.table_name || frm.doc.name;
+	let last_log = "";
+	let poll_timer = null;
+
+	let d = new frappe.ui.Dialog({
+		title: __("Sync Progress — {0}", [label]),
+		size: "large",
+		fields: [{ fieldtype: "HTML", fieldname: "progress_area" }],
+		primary_action_label: __("Running…"),
+		primary_action: function () {
+			_stop_poll();
+			d.hide();
+			frm.reload_doc();
+		},
+	});
+
+	d.get_primary_btn().prop("disabled", true);
+
+	d.fields_dict.progress_area.$wrapper.html(`
+		<div id="sync-log-box" style="
+			font-family: monospace; font-size: 12px;
+			background: var(--bg-color, #f8f8f8);
+			border: 1px solid var(--border-color, #ddd);
+			border-radius: 4px; padding: 12px;
+			min-height: 120px; max-height: 360px;
+			overflow-y: auto; white-space: pre-wrap; word-break: break-all;">
+			<span class="text-muted">${__("Waiting for worker to start…")}</span>
+		</div>
+	`);
+
+	d.show();
+
+	function _append(text, color) {
+		let $box = d.$wrapper.find("#sync-log-box");
+		let ts = new Date().toLocaleTimeString();
+		let style = color ? `style="color:${color};font-weight:bold;"` : "";
+		$box.append(`<div ${style}>[${ts}]  ${text}</div>`);
+		$box.scrollTop($box[0].scrollHeight);
+	}
+
+	function _stop_poll() {
+		if (poll_timer) { clearInterval(poll_timer); poll_timer = null; }
+	}
+
+	function _poll() {
+		frappe.db.get_value(
+			"WP Tables", frm.doc.name,
+			["last_sync_log", "last_sync_status"],
+			function (data) {
+				if (!data) return;
+				let log = data.last_sync_log || "";
+				let status = data.last_sync_status || "";
+
+				if (log && log !== last_log) {
+					last_log = log;
+					_append(log);
+				}
+
+				if (status && status !== "Running") {
+					_stop_poll();
+					let color = status === "Success" ? "#28a745" : "#dc3545";
+					_append(__("Sync finished: {0}", [status]), color);
+					// Reload form immediately so badge/status updates without waiting for Close
+					frm.reload_doc();
+					d.set_primary_action(__("Close"), function () {
+						d.hide();
+					});
+					d.get_primary_btn().prop("disabled", false);
+				}
+			}
+		);
+	}
+
+	poll_timer = setInterval(_poll, 1500);
+	d.$wrapper.on("hide.bs.modal", function () { _stop_poll(); });
 }

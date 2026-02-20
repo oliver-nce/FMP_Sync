@@ -26,6 +26,8 @@
   "frappe_doctype",
   "mirror_status",
   "column_mapping",
+  "name_field_column",
+  "auto_generated_columns",
   "error_log"
  ],
  "fields": [
@@ -159,6 +161,22 @@
    "read_only": 1,
    "hidden": 1,
    "description": "JSON mapping of WP column names to Frappe fieldnames"
+  },
+  {
+   "fieldname": "name_field_column",
+   "fieldtype": "Data",
+   "label": "Name Field Column",
+   "read_only": 1,
+   "hidden": 1,
+   "description": "WP column that maps directly to Frappe name (e.g. id)"
+  },
+  {
+   "fieldname": "auto_generated_columns",
+   "fieldtype": "Small Text",
+   "label": "Auto Generated Columns",
+   "read_only": 1,
+   "hidden": 1,
+   "description": "Comma-separated WP columns that are auto-generated (e.g. auto_increment) - skipped when writing records back to source"
   },
   {
    "fieldname": "mirror_status",

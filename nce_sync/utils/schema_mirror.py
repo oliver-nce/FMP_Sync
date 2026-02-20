@@ -478,6 +478,15 @@ def preview_table_schema(wp_conn_doc, wp_table_doc):
 	if wp_table_doc.matching_fields:
 		previous_matching = [f.strip() for f in wp_table_doc.matching_fields.split(",") if f.strip()]
 
+	# Get previously selected name field column (if any)
+	previous_name_column = getattr(wp_table_doc, "name_field_column", None) or None
+
+	# Get previously saved auto-generated columns
+	previous_auto_gen = []
+	auto_gen_raw = getattr(wp_table_doc, "auto_generated_columns", None) or ""
+	if auto_gen_raw:
+		previous_auto_gen = [c.strip().lower() for c in auto_gen_raw.split(",") if c.strip()]
+
 	preview = []
 	for col in schema["columns"]:
 		col_name = col["COLUMN_NAME"]
@@ -490,6 +499,7 @@ def preview_table_schema(wp_conn_doc, wp_table_doc):
 		# Check if this is a virtual/generated column
 		extra = col.get("EXTRA", "") or ""
 		is_virtual = "VIRTUAL" in extra.upper() or "GENERATED" in extra.upper()
+		is_auto_increment = "AUTO_INCREMENT" in extra.upper()
 
 		preview.append(
 			{
@@ -502,6 +512,7 @@ def preview_table_schema(wp_conn_doc, wp_table_doc):
 				"is_unique": is_unique,
 				"is_indexed": is_indexed,
 				"is_virtual": is_virtual,
+				"is_auto_increment": is_auto_increment,
 				"length": field_mapping.get("length", 0),
 				"precision": field_mapping.get("precision", 0),
 				"options": field_mapping.get("options", ""),
@@ -513,10 +524,14 @@ def preview_table_schema(wp_conn_doc, wp_table_doc):
 		"timestamps": timestamps,
 		"doctype_name": wp_table_doc.nce_name or table_name,
 		"previous_matching_fields": previous_matching,
+		"previous_name_field_column": previous_name_column,
+		"previous_auto_generated_columns": previous_auto_gen,
+		"previous_modified_ts": getattr(wp_table_doc, "modified_timestamp_field", None) or "",
+		"previous_created_ts": getattr(wp_table_doc, "created_timestamp_field", None) or "",
 	}
 
 
-def mirror_table_schema(wp_conn_doc, wp_table_doc, field_overrides=None, label_overrides=None):
+def mirror_table_schema(wp_conn_doc, wp_table_doc, field_overrides=None, label_overrides=None, name_field_column=None, auto_generated_columns=None, modified_ts_field=None, created_ts_field=None):
 	"""
 	Mirror a WordPress table schema to a Frappe Custom DocType.
 
@@ -525,6 +540,7 @@ def mirror_table_schema(wp_conn_doc, wp_table_doc, field_overrides=None, label_o
 		wp_table_doc: WP Tables document
 		field_overrides: Optional dict of {column_name: fieldtype} from user review
 		label_overrides: Optional dict of {column_name: label} from user review
+		name_field_column: Optional WP column name that maps directly to Frappe name (skips field creation)
 	"""
 	try:
 		# Connect to WordPress DB
@@ -556,7 +572,9 @@ def mirror_table_schema(wp_conn_doc, wp_table_doc, field_overrides=None, label_o
 				indicator="orange",
 			)
 			try:
-				update_existing_doctype(doctype_name, schema, wp_table_doc, field_overrides, label_overrides)
+				update_existing_doctype(
+					doctype_name, schema, wp_table_doc, field_overrides, label_overrides, name_field_column
+				)
 			except Exception as update_error:
 				# If update fails (e.g., duplicate field error), try deleting and recreating
 				if "appears multiple times" in str(update_error):
@@ -575,36 +593,66 @@ def mirror_table_schema(wp_conn_doc, wp_table_doc, field_overrides=None, label_o
 					frappe.db.commit()
 					# Recreate it
 					create_custom_doctype(
-						doctype_name, schema, wp_table_doc, field_overrides, label_overrides
+						doctype_name, schema, wp_table_doc, field_overrides, label_overrides, name_field_column
 					)
 				else:
 					raise  # Re-raise if it's a different error
 		else:
 			# Create new Custom DocType
-			create_custom_doctype(doctype_name, schema, wp_table_doc, field_overrides, label_overrides)
+			create_custom_doctype(
+				doctype_name, schema, wp_table_doc, field_overrides, label_overrides, name_field_column
+			)
 
 		# Build column mapping: WP column name -> mapping info
 		# Frappe lowercases all fieldnames, so we need to track the original WP names
 		# Also track if column is virtual/generated (for reverse sync)
-		# Sanitize restricted fieldnames (e.g., 'name' -> 'name_field')
+		# When name_field_column is set, that column maps to "name" with is_name=True
 		import json
+
+		# Normalise auto_generated_columns to a set of lowercase column names for quick lookup
+		auto_gen_set = set()
+		if auto_generated_columns:
+			auto_gen_set = {c.strip().lower() for c in auto_generated_columns if c.strip()}
 
 		column_mapping = {}
 		for col in schema["columns"]:
 			wp_col_name = col["COLUMN_NAME"]
-			frappe_fieldname = sanitize_fieldname(wp_col_name.lower())
 			extra = col.get("EXTRA", "") or ""
 			is_virtual = "VIRTUAL" in extra.upper() or "GENERATED" in extra.upper()
-			column_mapping[wp_col_name] = {
-				"fieldname": frappe_fieldname,
-				"is_virtual": is_virtual,
-			}
+			is_auto_increment = "AUTO_INCREMENT" in extra.upper()
+			is_auto_generated = wp_col_name.lower() in auto_gen_set or is_auto_increment
+			if name_field_column and wp_col_name == name_field_column:
+				column_mapping[wp_col_name] = {
+					"fieldname": "name",
+					"is_virtual": is_virtual,
+					"is_auto_generated": is_auto_generated,
+					"is_name": True,
+				}
+			else:
+				frappe_fieldname = sanitize_fieldname(wp_col_name.lower())
+				column_mapping[wp_col_name] = {
+					"fieldname": frappe_fieldname,
+					"is_virtual": is_virtual,
+					"is_auto_generated": is_auto_generated,
+				}
+
+		# Derive auto_generated_columns string from mapping for storage
+		stored_auto_gen = ",".join(
+			wp_col for wp_col, info in column_mapping.items() if info.get("is_auto_generated")
+		)
 
 		# Update WP Tables record
 		wp_table_doc.frappe_doctype = doctype_name
 		wp_table_doc.mirror_status = "Mirrored"
 		wp_table_doc.error_log = None
 		wp_table_doc.column_mapping = json.dumps(column_mapping)
+		wp_table_doc.name_field_column = name_field_column or None
+		wp_table_doc.auto_generated_columns = stored_auto_gen or None
+		# Timestamp fields: user selection from the mirror dialog takes precedence
+		if modified_ts_field:
+			wp_table_doc.modified_timestamp_field = modified_ts_field
+		if created_ts_field:
+			wp_table_doc.created_timestamp_field = created_ts_field
 		wp_table_doc.save()
 
 		# Add to workspace
@@ -620,7 +668,9 @@ def mirror_table_schema(wp_conn_doc, wp_table_doc, field_overrides=None, label_o
 		raise
 
 
-def create_custom_doctype(doctype_name, schema, wp_table_doc, field_overrides=None, label_overrides=None):
+def create_custom_doctype(
+	doctype_name, schema, wp_table_doc, field_overrides=None, label_overrides=None, name_field_column=None
+):
 	"""
 	Create a new Custom DocType programmatically.
 
@@ -630,23 +680,31 @@ def create_custom_doctype(doctype_name, schema, wp_table_doc, field_overrides=No
 		wp_table_doc: WP Tables document
 		field_overrides: Optional dict of {column_name: fieldtype} from user review
 		label_overrides: Optional dict of {column_name: label} from user review
+		name_field_column: Optional WP column that maps directly to Frappe name (skips field creation)
 	"""
-	# Determine naming rule based on matching fields
-	# Use the first matching field as the Frappe document name for cleaner IDs
+	# Determine naming rule
+	# When name_field_column is set: use "prompt" (allows direct name assignment during insert)
+	# Otherwise use first matching field or hash
 	autoname = "hash"  # Default fallback
-	matching_fields = get_matching_fields_list(wp_table_doc)
+	if name_field_column:
+		autoname = "prompt"
+	else:
+		matching_fields = get_matching_fields_list(wp_table_doc)
+		if matching_fields:
+			first_match_field = matching_fields[0]
+			safe_fieldname = sanitize_fieldname(first_match_field.lower())
+			autoname = f"field:{safe_fieldname}"
 
-	if matching_fields:
-		# Use the first matching field (typically the WP primary key) as the name
-		first_match_field = matching_fields[0]
-		safe_fieldname = sanitize_fieldname(first_match_field.lower())
-		autoname = f"field:{safe_fieldname}"
-
-	# Build fields using shared helper
+	# Build fields using shared helper - skip the name column (no DocType field for it)
 	fields = []
-	for idx, col in enumerate(schema["columns"], start=1):
+	idx = 1
+	for col in schema["columns"]:
+		col_name = col["COLUMN_NAME"]
+		if name_field_column and col_name == name_field_column:
+			continue  # Skip - value goes directly into Frappe name
 		field = build_frappe_field(col, schema, wp_table_doc, field_overrides, label_overrides, idx)
 		fields.append(field)
+		idx += 1
 
 	# Create DocType document
 	doctype_doc = frappe.get_doc(
@@ -677,7 +735,9 @@ def create_custom_doctype(doctype_name, schema, wp_table_doc, field_overrides=No
 	frappe.db.commit()
 
 
-def update_existing_doctype(doctype_name, schema, wp_table_doc, field_overrides=None, label_overrides=None):
+def update_existing_doctype(
+	doctype_name, schema, wp_table_doc, field_overrides=None, label_overrides=None, name_field_column=None
+):
 	"""
 	Update an existing DocType with new fields from schema.
 	Adds missing fields without removing existing ones.
@@ -692,33 +752,39 @@ def update_existing_doctype(doctype_name, schema, wp_table_doc, field_overrides=
 		wp_table_doc: WP Tables document
 		field_overrides: Optional dict of {column_name: fieldtype} from user review
 		label_overrides: Optional dict of {column_name: label} from user review
+		name_field_column: Optional WP column that maps directly to Frappe name (skips field creation)
 	"""
 	doctype_doc = frappe.get_doc("DocType", doctype_name)
 
-	# Update autoname if matching fields are set
-	matching_fields = get_matching_fields_list(wp_table_doc)
-	if matching_fields:
-		first_match_field = matching_fields[0]
-		safe_fieldname = sanitize_fieldname(first_match_field.lower())
-		new_autoname = f"field:{safe_fieldname}"
-		if doctype_doc.autoname != new_autoname:
-			doctype_doc.autoname = new_autoname
-			frappe.msgprint(
-				_("Updated naming rule to use {0}. Note: Existing records will keep their old names.").format(
-					first_match_field
-				),
-				indicator="orange",
-			)
+	# Update autoname
+	if name_field_column:
+		new_autoname = "prompt"
+	else:
+		matching_fields = get_matching_fields_list(wp_table_doc)
+		if matching_fields:
+			first_match_field = matching_fields[0]
+			safe_fieldname = sanitize_fieldname(first_match_field.lower())
+			new_autoname = f"field:{safe_fieldname}"
+		else:
+			new_autoname = doctype_doc.autoname or "hash"
+	if doctype_doc.autoname != new_autoname:
+		doctype_doc.autoname = new_autoname
+		frappe.msgprint(
+			_("Updated naming rule. Note: Existing records will keep their old names."),
+			indicator="orange",
+		)
 
 	# Get existing field names
 	existing_fields = {f.fieldname for f in doctype_doc.fields}
 
-	# Find new fields to add
+	# Find new fields to add - skip name column when name_field_column is set
 	new_fields_added = False
 	idx = len(doctype_doc.fields) + 1
 
 	for col in schema["columns"]:
 		col_name = col["COLUMN_NAME"]
+		if name_field_column and col_name == name_field_column:
+			continue  # Skip - no DocType field for name column
 		safe_fieldname = sanitize_fieldname(col_name.lower())
 
 		if safe_fieldname not in existing_fields:

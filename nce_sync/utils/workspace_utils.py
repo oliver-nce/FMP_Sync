@@ -27,6 +27,19 @@ import frappe
 WORKSPACE_NAME = "Tables"
 NCE_SYNC_MODULE = "NCE Sync"
 
+# Section headers used in the workspace content JSON
+_HEADER_DATA_TABLES = "Data Tables"
+_HEADER_REPORTS = "Reports"
+_HEADER_PAGES = "Pages"
+
+
+def _find_header_index(content, header_text):
+	"""Return the index of the first header whose text contains header_text, or None."""
+	for i, item in enumerate(content):
+		if item.get("type") == "header" and header_text in item.get("data", {}).get("text", ""):
+			return i
+	return None
+
 
 def on_doctype_change(doc, method):
 	"""
@@ -70,7 +83,6 @@ def add_to_workspace(doctype_name, label=None):
 		if item.get("type") == "shortcut" and item.get("data", {}).get("shortcut_name") == doctype_name:
 			return  # Already exists
 
-	# Add new shortcut card entry to content (after the "Mirrored Tables" header)
 	shortcut_entry = {
 		"id": frappe.generate_hash(length=10),
 		"type": "shortcut",
@@ -79,7 +91,13 @@ def add_to_workspace(doctype_name, label=None):
 			"col": 4,
 		},
 	}
-	content.append(shortcut_entry)
+
+	# Insert before the "Reports" header so it lands in the "Data Tables" section
+	insert_idx = _find_header_index(content, "Reports")
+	if insert_idx is not None:
+		content.insert(insert_idx, shortcut_entry)
+	else:
+		content.append(shortcut_entry)
 
 	# Also add to the shortcuts child table (needed for content shortcut references)
 	workspace.append(
@@ -97,6 +115,55 @@ def add_to_workspace(doctype_name, label=None):
 	workspace.save(ignore_permissions=True)
 	frappe.db.commit()
 
+	frappe.clear_cache()
+
+
+def add_report_to_workspace(report_name, label=None):
+	"""
+	Add a Report shortcut to the workspace under the "Reports" section.
+	Inserts before the "Pages" header so it stays in the Reports section.
+	"""
+	if not frappe.db.exists("Workspace", WORKSPACE_NAME):
+		return
+
+	workspace = frappe.get_doc("Workspace", WORKSPACE_NAME)
+
+	try:
+		content = json.loads(workspace.content) if workspace.content else []
+	except json.JSONDecodeError:
+		content = []
+
+	for item in content:
+		if item.get("type") == "shortcut" and item.get("data", {}).get("shortcut_name") == report_name:
+			return  # Already exists
+
+	shortcut_entry = {
+		"id": frappe.generate_hash(length=10),
+		"type": "shortcut",
+		"data": {
+			"shortcut_name": report_name,
+			"col": 4,
+		},
+	}
+
+	insert_idx = _find_header_index(content, _HEADER_PAGES)
+	if insert_idx is not None:
+		content.insert(insert_idx, shortcut_entry)
+	else:
+		content.append(shortcut_entry)
+
+	workspace.append(
+		"shortcuts",
+		{
+			"label": label or report_name,
+			"link_to": report_name,
+			"type": "Report",
+		},
+	)
+
+	workspace.content = json.dumps(content)
+	workspace.save(ignore_permissions=True)
+	frappe.db.commit()
 	frappe.clear_cache()
 
 

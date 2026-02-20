@@ -24,7 +24,7 @@ add_to_apps_screen = [
 # ------------------
 
 # include js, css files in header of desk.html
-# app_include_css = "/assets/nce_sync/css/nce_sync.css"
+app_include_css = "/assets/nce_sync/css/nce_sync.css"
 app_include_js = "/assets/nce_sync/js/list_auto_size.js"
 
 # include js, css files in header of web template

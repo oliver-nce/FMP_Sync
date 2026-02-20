@@ -1,6 +1,6 @@
 {
  "charts": [],
- "content": "[{\"id\":\"0mzeg9TXjg\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h4\\\"><b>System Tables</b></span>\",\"col\":12}},{\"id\":\"wp_conn_shortcut\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"WordPress Connection\",\"col\":4}},{\"id\":\"wp_tables_shortcut\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"WP Tables\",\"col\":4}},{\"id\":\"sync_manager_shortcut\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Sync Manager\",\"col\":4}},{\"id\":\"sync_log_shortcut\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Sync Log\",\"col\":4}},{\"id\":\"Rc_NRS5hkB\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h4\\\"><b>Data Tables</b></span>\",\"col\":12}},{\"id\":\"0a8fe1049a\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Event Sessions\",\"col\":4}},{\"id\":\"00783d22b9\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Family Members\",\"col\":4}},{\"id\":\"e5e4d67394\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Families\",\"col\":4}},{\"id\":\"e5e67e8e36\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Registrations\",\"col\":4}},{\"id\":\"2ba7469648\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Venues\",\"col\":4}},{\"id\":\"da141c97a7\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Events\",\"col\":4}},{\"id\":\"R8zvN5hDJ_\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h4\\\"><b>Architecture</b></span>\",\"col\":12}},{\"id\":\"table_links_shortcut\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Table Links\",\"col\":4}}]",
+ "content": "[{\"id\": \"0mzeg9TXjg\", \"type\": \"header\", \"data\": {\"text\": \"<span class=\\\"h4\\\"><b>System Tables</b></span>\", \"col\": 12}}, {\"id\": \"wp_conn_shortcut\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"WordPress Connection\", \"col\": 4}}, {\"id\": \"wp_tables_shortcut\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"WP Tables\", \"col\": 4}}, {\"id\": \"sync_manager_shortcut\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Sync Manager\", \"col\": 4}}, {\"id\": \"sync_log_shortcut\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Sync Log\", \"col\": 4}}, {\"id\": \"Rc_NRS5hkB\", \"type\": \"header\", \"data\": {\"text\": \"<span class=\\\"h4\\\"><b>Data Tables</b></span>\", \"col\": 12}}, {\"id\": \"00783d22b9\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Family Members\", \"col\": 4}}, {\"id\": \"e5e4d67394\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Families\", \"col\": 4}}, {\"id\": \"e5e67e8e36\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Registrations\", \"col\": 4}}, {\"id\": \"416a744528\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Event Sessions\", \"col\": 4}}, {\"id\": \"hdr_reports\", \"type\": \"header\", \"data\": {\"text\": \"<span class=\\\"h4\\\"><b>Reports</b></span>\", \"col\": 12}}, {\"id\": \"hdr_pages\", \"type\": \"header\", \"data\": {\"text\": \"<span class=\\\"h4\\\"><b>Pages</b></span>\", \"col\": 12}}, {\"id\": \"table_links_shortcut\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Table Links\", \"col\": 4}}]",
  "creation": "2026-02-06 00:00:00",
  "custom_blocks": [],
  "docstatus": 0,
@@ -43,7 +43,7 @@
    "type": "Link"
   }
  ],
- "modified": "2026-02-20 12:00:16.981097",
+ "modified": "2026-02-20 15:09:51.023293",
  "modified_by": "Administrator",
  "module": "NCE Sync",
  "name": "Tables",
@@ -95,12 +95,6 @@
   },
   {
    "doc_view": "List",
-   "label": "Event Sessions",
-   "link_to": "Event Sessions",
-   "type": "DocType"
-  },
-  {
-   "doc_view": "List",
    "label": "Family Members",
    "link_to": "Family Members",
    "type": "DocType"
@@ -119,14 +113,8 @@
   },
   {
    "doc_view": "List",
-   "label": "Venues",
-   "link_to": "Venues",
-   "type": "DocType"
-  },
-  {
-   "doc_view": "List",
-   "label": "Events",
-   "link_to": "Events",
+   "label": "Event Sessions",
+   "link_to": "Event Sessions",
    "type": "DocType"
   }
  ],

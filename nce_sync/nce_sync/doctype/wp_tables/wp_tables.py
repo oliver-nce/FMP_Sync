@@ -82,13 +82,20 @@ def _delete_mirrored_doctype(doctype_name):
 	if any(deps.values()):
 		frappe.db.commit()
 
-	# Step 5: delete the DocType — Frappe handles table drop + hard deps automatically
+	# Step 5: delete the DocType record
 	if frappe.db.exists("DocType", doctype_name):
 		try:
 			frappe.delete_doc("DocType", doctype_name, force=True, ignore_permissions=True)
 			frappe.db.commit()
 		except Exception as e:
 			frappe.log_error(title=f"Delete DocType failed: {doctype_name}", message=str(e))
+
+	# Step 6: explicitly drop the DB table (Frappe doesn't always do this reliably)
+	try:
+		frappe.db.sql(f"DROP TABLE IF EXISTS `tab{doctype_name}`")
+		frappe.db.commit()
+	except Exception as e:
+		frappe.log_error(title=f"Drop table failed: tab{doctype_name}", message=str(e))
 
 
 class WPTables(Document):
@@ -150,12 +157,15 @@ class WPTables(Document):
 					)
 
 		# Check if a database table with this name already exists (possibly in use by another app)
+		# Skip if this WP Tables entry owns that name (e.g. orphan table from a previous re-mirror)
 		if frappe.db.sql("SHOW TABLES LIKE %s", f"tab{name}"):
-			frappe.throw(
-				_(
-					"'{0}' cannot be used — it already exists, possibly in use by another app. Please choose a different name."
-				).format(name)
-			)
+			is_own_orphan = self.nce_name == name or self.frappe_doctype == name
+			if not is_own_orphan:
+				frappe.throw(
+					_(
+						"'{0}' cannot be used — it already exists, possibly in use by another app. Please choose a different name."
+					).format(name)
+				)
 
 	@frappe.whitelist()
 	def preview_schema(self):

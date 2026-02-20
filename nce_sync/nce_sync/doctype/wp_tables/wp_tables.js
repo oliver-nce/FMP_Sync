@@ -57,38 +57,41 @@ frappe.ui.form.on("WP Tables", {
 			frm.page.set_indicator(__("Mirrored"), "blue");
 		}
 
-		// Mirror Schema button — always available
-		frm.add_custom_button(
-			__("Mirror Schema"),
-			function () {
-				frappe.call({
-					method: "preview_schema",
-					doc: frm.doc,
-					freeze: true,
-					freeze_message: __("Introspecting table schema..."),
-					callback: function (r) {
-						if (r.message) {
-							show_preview_dialog(frm, r.message);
-						}
-					},
-				});
-			},
-			__("Actions")
-		);
+		let is_mirrored = frm.doc.mirror_status === "Mirrored" && frm.doc.frappe_doctype;
 
-		// Only show sync and cleanup buttons when a mirror exists
-		if (frm.doc.mirror_status === "Mirrored" && frm.doc.frappe_doctype) {
-			// Sync Now button - enqueues background sync and opens live progress dialog
+		// Mirror Schema — only when not yet mirrored
+		if (!is_mirrored) {
+			frm.add_custom_button(
+				__("Mirror Schema"),
+				function () {
+					frappe.call({
+						method: "preview_schema",
+						doc: frm.doc,
+						freeze: true,
+						freeze_message: __("Introspecting table schema..."),
+						callback: function (r) {
+							if (r.message) {
+								show_preview_dialog(frm, r.message);
+							}
+						},
+					});
+				},
+				__("Actions")
+			);
+		}
+
+		if (is_mirrored) {
+			// Sync Now
 			frm.add_custom_button(
 				__("Sync Now"),
 				function () {
 					frappe.call({
 						method: "sync_now",
 						doc: frm.doc,
-						callback: function (r) {
+						callback: function () {
 							show_sync_progress_dialog(frm);
 						},
-						error: function (r) {
+						error: function () {
 							frm.reload_doc();
 						},
 					});
@@ -96,57 +99,7 @@ frappe.ui.form.on("WP Tables", {
 				__("Actions")
 			);
 
-			frappe.xcall("nce_sync.utils.workspace_utils.is_in_workspace", {
-				doctype_name: frm.doc.frappe_doctype,
-			}).then((in_ws) => {
-				if (!in_ws) {
-					let btn = frm.add_custom_button(
-						__("Add to Workspace"),
-						function () {
-							frappe.call({
-								method: "add_to_workspace",
-								doc: frm.doc,
-								callback: function () {
-									frappe.ui.toolbar.clear_cache();
-									frm.reload_doc();
-								},
-							});
-						}
-					);
-					btn.css({ "background-color": "pink", "color": "red", "font-weight": "bold" });
-				}
-			});
-
-			frm.add_custom_button(
-				__("Regen Column Map"),
-				function () {
-					frappe.call({
-						method: "regenerate_column_mapping",
-						doc: frm.doc,
-						freeze: true,
-						freeze_message: __("Regenerating column mapping..."),
-						callback: function () {
-							frm.reload_doc();
-						},
-					});
-				},
-				__("Actions")
-			);
-
-			frm.add_custom_button(
-				__("Debug Sync"),
-				function () {
-					frappe.call({
-						method: "debug_sync_one_row",
-						doc: frm.doc,
-						freeze: true,
-						freeze_message: __("Checking first row..."),
-						callback: function () {},
-					});
-				},
-				__("Actions")
-			);
-
+			// Truncate Data — clears all records, keeps DocType structure
 			frm.add_custom_button(
 				__("Truncate Data"),
 				function () {
@@ -175,12 +128,13 @@ frappe.ui.form.on("WP Tables", {
 				__("Actions")
 			);
 
+			// Reconfigure — full teardown: DocType + deps + SQL table + workspace link → Pending
 			frm.add_custom_button(
-				__("Re-mirror"),
+				__("Reconfigure"),
 				function () {
 					frappe.confirm(
 						__(
-							"This will delete the DocType '{0}' and remove it from the workspace. You can then mirror again with different settings. Continue?",
+							"This will delete the DocType '{0}', its data, and remove it from the workspace. You can then Mirror Schema again with different settings. Continue?",
 							[frm.doc.frappe_doctype]
 						),
 						function () {
@@ -188,8 +142,9 @@ frappe.ui.form.on("WP Tables", {
 								method: "delete_mirror",
 								doc: frm.doc,
 								freeze: true,
-								freeze_message: __("Deleting mirror..."),
+								freeze_message: __("Reconfiguring..."),
 								callback: function () {
+									frappe.ui.toolbar.clear_cache();
 									frm.reload_doc();
 								},
 							});
@@ -199,31 +154,27 @@ frappe.ui.form.on("WP Tables", {
 				__("Actions")
 			);
 
-			frm.add_custom_button(
-				__("Remove Table"),
-				function () {
-					frappe.confirm(
-						__(
-							"This will permanently delete the DocType '{0}', remove it from the workspace, and delete this WP Tables entry. This cannot be undone. Continue?",
-							[frm.doc.frappe_doctype]
-						),
+			// "Add to Workspace" shown outside Actions menu when shortcut is missing
+			frappe.xcall("nce_sync.utils.workspace_utils.is_in_workspace", {
+				doctype_name: frm.doc.frappe_doctype,
+			}).then((in_ws) => {
+				if (!in_ws) {
+					let btn = frm.add_custom_button(
+						__("Add to Workspace"),
 						function () {
 							frappe.call({
-								method: "remove_table",
+								method: "add_to_workspace",
 								doc: frm.doc,
-								freeze: true,
-								freeze_message: __("Removing table..."),
 								callback: function () {
-									// Clear local workspace cache and redirect
 									frappe.ui.toolbar.clear_cache();
-									window.location.href = "/app/tables";
+									frm.reload_doc();
 								},
 							});
 						}
 					);
-				},
-				__("Actions")
-			);
+					btn.css({ "background-color": "pink", "color": "red", "font-weight": "bold" });
+				}
+			});
 		}
 	},
 });
@@ -269,16 +220,11 @@ function show_preview_dialog(frm, preview_data) {
 			// Collect "Use as Name" selection (mutually exclusive radio)
 			let name_field_column = d.$wrapper.find(".name-field-radio:checked").val() || "";
 
-			// Collect matching fields (up to 3 selected checkboxes) - disabled when Name is used
+			// Collect matching fields (up to 3 selected checkboxes)
 			let matching_fields = [];
-			if (!name_field_column) {
-				d.$wrapper.find(".matching-field-checkbox:checked").each(function () {
-					matching_fields.push($(this).data("column"));
-				});
-			} else {
-				// When Name column is used, it IS the sole match key - pass it as matching_fields for consistency
-				matching_fields = [name_field_column];
-			}
+			d.$wrapper.find(".matching-field-checkbox:checked").each(function () {
+				matching_fields.push($(this).data("column"));
+			});
 
 			// Collect auto-generated columns
 			let auto_generated_columns = [];
@@ -511,19 +457,11 @@ function show_preview_dialog(frm, preview_data) {
 		let name_selected = $checked_radio.length > 0;
 		let id_col = name_selected ? $checked_radio.val() : null;
 
-		// Match checkboxes
+		// Match checkboxes — always enabled, even when Frappe ID is selected
+		// (user may need a separate match key, e.g. auto-increment PK for WP push-back)
 		d.$wrapper.find(".matching-field-checkbox").each(function () {
 			let $cb = $(this);
-			if (name_selected) {
-				$cb.prop("checked", false).prop("disabled", true);
-			} else {
-				$cb.prop("disabled", false);
-				let col = $cb.data("column");
-				let f = fields.find((x) => x.column_name === col);
-				if (f && previous_matching.length === 0 && (f.is_primary_key || f.is_unique)) {
-					$cb.prop("checked", true);
-				}
-			}
+			$cb.prop("disabled", false);
 		});
 
 		// Frappe Type dropdowns — disable + grey out only the selected ID column

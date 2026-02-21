@@ -44,6 +44,22 @@ def sanitize_fieldname(fieldname):
 	return fieldname
 
 
+def resolve_fieldname(col_name, label_overrides=None):
+	"""
+	Determine the Frappe fieldname for a WP column.
+
+	For restricted source names (e.g. 'name'), if a label override is provided
+	the fieldname is derived from the custom label (e.g. 'Event Name' -> 'event_name').
+	Otherwise falls back to sanitize_fieldname (which appends '_field').
+	"""
+	lower = col_name.lower()
+	if lower in RESTRICTED_FIELDNAMES and label_overrides and col_name in label_overrides:
+		derived = frappe.scrub(label_overrides[col_name])
+		if derived and derived not in RESTRICTED_FIELDNAMES:
+			return derived
+	return sanitize_fieldname(lower)
+
+
 def get_matching_fields_list(wp_table_doc):
 	"""
 	Parse matching_fields from WP Tables document into a list.
@@ -75,7 +91,7 @@ def build_frappe_field(col, schema, wp_table_doc, field_overrides=None, label_ov
 		Dict suitable for DocType field definition
 	"""
 	col_name = col["COLUMN_NAME"]
-	safe_fieldname = sanitize_fieldname(col_name.lower())
+	safe_fieldname = resolve_fieldname(col_name, label_overrides)
 	field_mapping = map_mariadb_to_frappe_type(col)
 
 	# Apply user override if provided
@@ -629,7 +645,7 @@ def mirror_table_schema(wp_conn_doc, wp_table_doc, field_overrides=None, label_o
 					"is_name": True,
 				}
 			else:
-				frappe_fieldname = sanitize_fieldname(wp_col_name.lower())
+				frappe_fieldname = resolve_fieldname(wp_col_name, label_overrides)
 				column_mapping[wp_col_name] = {
 					"fieldname": frappe_fieldname,
 					"is_virtual": is_virtual,
@@ -692,7 +708,7 @@ def create_custom_doctype(
 		matching_fields = get_matching_fields_list(wp_table_doc)
 		if matching_fields:
 			first_match_field = matching_fields[0]
-			safe_fieldname = sanitize_fieldname(first_match_field.lower())
+			safe_fieldname = resolve_fieldname(first_match_field, label_overrides)
 			autoname = f"field:{safe_fieldname}"
 
 	# Build fields using shared helper - skip the name column (no DocType field for it)
@@ -763,7 +779,7 @@ def update_existing_doctype(
 		matching_fields = get_matching_fields_list(wp_table_doc)
 		if matching_fields:
 			first_match_field = matching_fields[0]
-			safe_fieldname = sanitize_fieldname(first_match_field.lower())
+			safe_fieldname = resolve_fieldname(first_match_field, label_overrides)
 			new_autoname = f"field:{safe_fieldname}"
 		else:
 			new_autoname = doctype_doc.autoname or "hash"
@@ -785,7 +801,7 @@ def update_existing_doctype(
 		col_name = col["COLUMN_NAME"]
 		if name_field_column and col_name == name_field_column:
 			continue  # Skip - no DocType field for name column
-		safe_fieldname = sanitize_fieldname(col_name.lower())
+		safe_fieldname = resolve_fieldname(col_name, label_overrides)
 
 		if safe_fieldname not in existing_fields:
 			field = build_frappe_field(col, schema, wp_table_doc, field_overrides, label_overrides, idx)

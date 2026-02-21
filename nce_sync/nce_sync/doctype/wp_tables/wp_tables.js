@@ -21,6 +21,16 @@ const FRAPPE_FIELD_TYPES = [
 	"Rating",
 ];
 
+const RESERVED_FIELDNAMES = [
+	"name", "parent", "creation", "owner", "modified",
+	"modified_by", "parentfield", "parenttype", "file_list",
+	"flags", "docstatus",
+];
+
+function _scrub_fieldname(label) {
+	return (label || "").toLowerCase().replace(/\s+/g, "_").replace(/[^a-z0-9_]/g, "");
+}
+
 frappe.ui.form.on("WP Tables", {
 	after_save: function (frm) {
 		let desired = (frm.doc.nce_name || frm.doc.table_name || "").trim();
@@ -236,6 +246,25 @@ function show_preview_dialog(frm, preview_data) {
 			let modified_ts_field = d.$wrapper.find(".mod-ts-radio:checked").val() || "";
 			let created_ts_field = d.$wrapper.find(".crt-ts-radio:checked").val() || "";
 
+			// Validate reserved column labels
+			let reserved_errors = [];
+			d.$wrapper.find(".field-label-input.reserved-source-col").each(function () {
+				let col_name = $(this).data("column");
+				let label = $(this).val().trim();
+				let scrubbed = _scrub_fieldname(label);
+				if (!label || RESERVED_FIELDNAMES.includes(scrubbed)) {
+					reserved_errors.push(col_name);
+					$(this).css({ "border-color": "#dc3545", "background-color": "#fff0f0" });
+				}
+			});
+			if (reserved_errors.length > 0) {
+				frappe.msgprint(
+					__("Reserved column(s) need a unique label: <strong>{0}</strong>.<br>Choose a label that doesn't resolve to a reserved name (e.g. 'Event Name' instead of 'Name').",
+						[reserved_errors.join(", ")])
+				);
+				return;
+			}
+
 			// Validate: max 3 matching fields (when not using Name)
 			if (!name_field_column && matching_fields.length > 3) {
 				frappe.msgprint(__("Please select a maximum of 3 matching fields."));
@@ -404,6 +433,19 @@ function show_preview_dialog(frm, preview_data) {
 			crt_ts_cell = `<span style="color:#ccc;" title="${__("Not a datetime column")}">—</span>`;
 		}
 
+		let is_reserved_col = RESERVED_FIELDNAMES.includes(f.column_name.toLowerCase());
+		let reserved_cls = is_reserved_col ? " reserved-source-col" : "";
+		let reserved_style = "";
+		let reserved_hint = "";
+		if (is_reserved_col) {
+			let scrubbed = _scrub_fieldname(f.label);
+			let still_bad = RESERVED_FIELDNAMES.includes(scrubbed);
+			reserved_style = still_bad
+				? ' style="border-color:#dc3545;background-color:#fff0f0;"'
+				: ' style="border-color:#28a745;background-color:#f0fff0;"';
+			reserved_hint = `<div class="reserved-label-hint text-danger" style="font-size:11px;margin-top:2px;${still_bad ? "" : "display:none;"}">⚠ "${f.column_name}" is reserved — choose a unique label</div>`;
+		}
+
 		html += `
 			<tr ${row_class}>
 				<td style="text-align: center;">
@@ -432,10 +474,11 @@ function show_preview_dialog(frm, preview_data) {
 				<td>${f.is_nullable === "YES" ? "Yes" : "<strong>No</strong>"}</td>
 				<td>${keys_html}</td>
 				<td>
-					<input type="text" class="form-control form-control-sm field-label-input"
+					<input type="text" class="form-control form-control-sm field-label-input${reserved_cls}"
 						data-column="${f.column_name}"
 						data-original="${f.label}"
-						value="${f.label}">
+						value="${f.label}"${reserved_style}>
+					${reserved_hint}
 				</td>
 			</tr>
 		`;
@@ -513,10 +556,24 @@ function show_preview_dialog(frm, preview_data) {
 		}
 	});
 
-	// Highlight changed labels
+	// Highlight changed labels (with reserved-column validation)
 	d.$wrapper.on("input", ".field-label-input", function () {
+		let col_name = $(this).data("column");
 		let original = $(this).data("original");
-		if ($(this).val().trim() !== original) {
+		let label = $(this).val().trim();
+		let is_reserved = RESERVED_FIELDNAMES.includes(col_name.toLowerCase());
+
+		if (is_reserved) {
+			let scrubbed = _scrub_fieldname(label);
+			let $hint = $(this).parent().find(".reserved-label-hint");
+			if (!label || RESERVED_FIELDNAMES.includes(scrubbed)) {
+				$(this).css({ "border-color": "#dc3545", "background-color": "#fff0f0" });
+				$hint.show();
+			} else {
+				$(this).css({ "border-color": "#28a745", "background-color": "#f0fff0" });
+				$hint.hide();
+			}
+		} else if (label !== original) {
 			$(this).css("border-color", "#f0ad4e");
 			$(this).css("background-color", "#fff8e1");
 		} else {

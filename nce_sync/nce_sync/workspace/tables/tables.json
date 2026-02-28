@@ -12,7 +12,7 @@
  "is_hidden": 0,
  "label": "Tables",
  "links": [],
- "modified": "2026-02-21 12:00:00.000000",
+ "modified": "2026-02-23 00:00:00.000000",
  "modified_by": "Administrator",
  "module": "NCE Sync",
  "name": "Tables",
@@ -27,7 +27,7 @@
  "shortcuts": [
   {
    "color": "Blue",
-   "doc_view": "",
+   "doc_view": "Form",
    "label": "WordPress Connection",
    "link_to": "WordPress Connection",
    "type": "DocType"
@@ -42,7 +42,7 @@
   },
   {
    "color": "Blue",
-   "doc_view": "",
+   "doc_view": "Form",
    "label": "Sync Manager",
    "link_to": "Sync Manager",
    "type": "DocType"

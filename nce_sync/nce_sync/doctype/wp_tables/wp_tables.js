@@ -138,6 +138,33 @@ frappe.ui.form.on("WP Tables", {
 				__("Actions")
 			);
 
+			// Remap — re-read source schema, add new columns, rebuild mapping, truncate + repopulate
+			frm.add_custom_button(
+				__("Remap"),
+				function () {
+					frappe.confirm(
+						__(
+							"This will truncate all data in '{0}', re-read the source schema (adding any new columns), and rebuild the column mapping. The DocType and its table are preserved. Continue?",
+							[frm.doc.frappe_doctype]
+						),
+						function () {
+							frappe.call({
+								method: "preview_schema",
+								doc: frm.doc,
+								freeze: true,
+								freeze_message: __("Introspecting table schema..."),
+								callback: function (r) {
+									if (r.message) {
+										show_preview_dialog(frm, r.message, "remap");
+									}
+								},
+							});
+						}
+					);
+				},
+				__("Actions")
+			);
+
 			// Reconfigure — full teardown: DocType + deps + SQL table + workspace link → Pending
 			frm.add_custom_button(
 				__("Reconfigure"),
@@ -189,14 +216,22 @@ frappe.ui.form.on("WP Tables", {
 	},
 });
 
-function show_preview_dialog(frm, preview_data) {
+function show_preview_dialog(frm, preview_data, mode) {
+	mode = mode || "mirror";
 	let fields = preview_data.fields;
 	let doctype_name = preview_data.doctype_name;
 	let previous_matching = preview_data.previous_matching_fields || [];
 	let previous_name_column = preview_data.previous_name_field_column || null;
 
+	let dialog_title = mode === "remap"
+		? __("Remap Schema — {0}", [doctype_name])
+		: __("Review Field Types — {0}", [doctype_name]);
+	let action_label = mode === "remap"
+		? __("Confirm & Remap")
+		: __("Confirm & Create");
+
 	let d = new frappe.ui.Dialog({
-		title: __("Review Field Types — {0}", [doctype_name]),
+		title: dialog_title,
 		size: "extra-large",
 		fields: [
 			{
@@ -204,7 +239,7 @@ function show_preview_dialog(frm, preview_data) {
 				fieldname: "field_preview",
 			},
 		],
-		primary_action_label: __("Confirm & Create"),
+		primary_action_label: action_label,
 		primary_action: function () {
 			// Collect field type overrides
 			let field_overrides = {};
@@ -282,11 +317,14 @@ function show_preview_dialog(frm, preview_data) {
 			}
 
 			// Disable button to prevent double-clicks while processing
-			d.get_primary_btn().prop("disabled", true).text(__("Creating…"));
+			let busy_text = mode === "remap" ? __("Remapping…") : __("Creating…");
+			d.get_primary_btn().prop("disabled", true).text(busy_text);
 
-			// Mirror with user-confirmed field types, labels, matching fields, name column, auto-generated columns, and timestamps
+			let call_method = mode === "remap" ? "remap_schema" : "mirror_schema";
+			let freeze_msg = mode === "remap" ? __("Remapping schema...") : __("Creating DocType...");
+
 			frappe.call({
-				method: "mirror_schema",
+				method: call_method,
 				doc: frm.doc,
 				args: {
 					field_overrides: JSON.stringify(field_overrides),
@@ -298,7 +336,7 @@ function show_preview_dialog(frm, preview_data) {
 					created_ts_field: created_ts_field || undefined,
 				},
 				freeze: true,
-				freeze_message: __("Creating DocType..."),
+				freeze_message: freeze_msg,
 				callback: function (r) {
 					d.hide();
 					frm.reload_doc();

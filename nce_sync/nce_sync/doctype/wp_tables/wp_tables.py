@@ -296,7 +296,7 @@ class WPTables(Document):
 		"""
 		import json
 
-		from nce_sync.utils.schema_mirror import get_table_schema, get_wp_connection, sanitize_fieldname
+		from nce_sync.utils.schema_mirror import get_table_schema, get_wp_connection, resolve_fieldname
 
 		wp_conn = frappe.get_single("WordPress Connection")
 		if not wp_conn:
@@ -322,7 +322,7 @@ class WPTables(Document):
 					"is_name": True,
 				}
 			else:
-				frappe_fieldname = sanitize_fieldname(wp_col_name.lower())
+				frappe_fieldname = resolve_fieldname(wp_col_name)
 				column_mapping[wp_col_name] = {
 					"fieldname": frappe_fieldname,
 					"is_virtual": is_virtual,

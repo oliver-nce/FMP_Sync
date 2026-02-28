@@ -142,25 +142,47 @@ frappe.ui.form.on("WP Tables", {
 			frm.add_custom_button(
 				__("Remap"),
 				function () {
-					frappe.confirm(
-						__(
-							"This will truncate all data in '{0}', re-read the source schema (adding any new columns), and rebuild the column mapping. The DocType and its table are preserved. Continue?",
-							[frm.doc.frappe_doctype]
-						),
-						function () {
+					let d = new frappe.ui.Dialog({
+						title: __("Remap — {0}", [frm.doc.frappe_doctype]),
+						fields: [
+							{
+								fieldtype: "HTML",
+								fieldname: "info",
+								options: `<p class="text-muted">${__(
+									"This will truncate all data in '{0}', re-read the source schema (adding any new columns), and rebuild the column mapping. The DocType and its table are preserved.",
+									[frm.doc.frappe_doctype]
+								)}</p>`,
+							},
+							{
+								fieldtype: "Data",
+								fieldname: "new_table_name",
+								label: __("Source Table Name"),
+								default: frm.doc.table_name,
+								description: __("Change this if the WordPress table has been renamed."),
+							},
+						],
+						primary_action_label: __("Continue"),
+						primary_action: function (values) {
+							d.hide();
+							let new_name = (values.new_table_name || "").trim();
+							let table_name_override = (new_name && new_name !== frm.doc.table_name)
+								? new_name : undefined;
+
 							frappe.call({
 								method: "preview_schema",
 								doc: frm.doc,
+								args: { table_name_override: table_name_override },
 								freeze: true,
 								freeze_message: __("Introspecting table schema..."),
 								callback: function (r) {
 									if (r.message) {
-										show_preview_dialog(frm, r.message, "remap");
+										show_preview_dialog(frm, r.message, "remap", new_name);
 									}
 								},
 							});
-						}
-					);
+						},
+					});
+					d.show();
 				},
 				__("Actions")
 			);
@@ -216,7 +238,7 @@ frappe.ui.form.on("WP Tables", {
 	},
 });
 
-function show_preview_dialog(frm, preview_data, mode) {
+function show_preview_dialog(frm, preview_data, mode, new_table_name) {
 	mode = mode || "mirror";
 	let fields = preview_data.fields;
 	let doctype_name = preview_data.doctype_name;
@@ -323,18 +345,23 @@ function show_preview_dialog(frm, preview_data, mode) {
 			let call_method = mode === "remap" ? "remap_schema" : "mirror_schema";
 			let freeze_msg = mode === "remap" ? __("Remapping schema...") : __("Creating DocType...");
 
+			let call_args = {
+				field_overrides: JSON.stringify(field_overrides),
+				label_overrides: JSON.stringify(label_overrides),
+				matching_fields: matching_fields.join(","),
+				name_field_column: name_field_column || undefined,
+				auto_generated_columns: auto_generated_columns.join(",") || undefined,
+				modified_ts_field: modified_ts_field || undefined,
+				created_ts_field: created_ts_field || undefined,
+			};
+			if (mode === "remap" && new_table_name && new_table_name !== frm.doc.table_name) {
+				call_args.new_table_name = new_table_name;
+			}
+
 			frappe.call({
 				method: call_method,
 				doc: frm.doc,
-				args: {
-					field_overrides: JSON.stringify(field_overrides),
-					label_overrides: JSON.stringify(label_overrides),
-					matching_fields: matching_fields.join(","),
-					name_field_column: name_field_column || undefined,
-					auto_generated_columns: auto_generated_columns.join(",") || undefined,
-					modified_ts_field: modified_ts_field || undefined,
-					created_ts_field: created_ts_field || undefined,
-				},
+				args: call_args,
 				freeze: true,
 				freeze_message: freeze_msg,
 				callback: function (r) {

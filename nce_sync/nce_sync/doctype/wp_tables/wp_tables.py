@@ -168,7 +168,7 @@ class WPTables(Document):
 				)
 
 	@frappe.whitelist()
-	def preview_schema(self):
+	def preview_schema(self, table_name_override=None):
 		"""Introspect table schema and return proposed field mappings for user review."""
 		from nce_sync.utils.schema_mirror import preview_table_schema
 
@@ -176,7 +176,14 @@ class WPTables(Document):
 		if not wp_conn:
 			frappe.throw(_("WordPress Connection not configured"))
 
-		return preview_table_schema(wp_conn, self)
+		original_table_name = self.table_name
+		if table_name_override:
+			self.table_name = table_name_override
+
+		try:
+			return preview_table_schema(wp_conn, self)
+		finally:
+			self.table_name = original_table_name
 
 	@frappe.whitelist()
 	def mirror_schema(self, field_overrides=None, label_overrides=None, matching_fields=None, name_field_column=None, auto_generated_columns=None, modified_ts_field=None, created_ts_field=None):

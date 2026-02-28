@@ -531,27 +531,32 @@ def _sync_ts_compare(conn, wp_table_doc, wp_conn_doc, frappe_doctype, ts_field):
 	frappe_ts_field = get_frappe_fieldname(ts_field, column_mapping) if ts_field else None
 	cutoff = _get_cutoff_timestamp(frappe_doctype, frappe_ts_field, wp_tz)
 
-	ts_changed_count = _count_rows_to_sync(
-		conn, table_name, ts_field, wp_table_doc.created_timestamp_field, cutoff
-	)
 	changed_rows = _fetch_changed_rows(
 		conn, table_name, ts_field, wp_table_doc.created_timestamp_field, cutoff
 	)
 
-	# Step 2c: Fetch missing rows (these were skipped by TS cutoff because they
-	# have old timestamps but were never synced into Frappe)
+	# Build set of keys already covered by the TS-changed fetch so we
+	# don't double-count or double-process them in the missing pass.
+	changed_keys = set()
+	for row in changed_rows:
+		converted = _convert_row(row, None, column_mapping)
+		key_tuple = tuple(_normalize_key_value(converted.get(k)) for k in matching_keys)
+		changed_keys.add(key_tuple)
+
+	# Step 2c: Fetch missing rows that were NOT already in the TS-changed set
+	# (these have old timestamps but were never synced into Frappe)
+	missing_keys_only = missing_keys - changed_keys
 	missing_rows = _fetch_rows_by_keys(
-		conn, table_name, matching_keys, reverse_mapping, column_mapping, missing_keys
+		conn, table_name, matching_keys, reverse_mapping, column_mapping, missing_keys_only
 	)
 
-	# Total for progress tracking: TS-changed + missing (with possible overlap)
-	total_to_sync = ts_changed_count + len(missing_rows)
+	total_to_sync = len(changed_rows) + len(missing_rows)
 
 	# Step 3: Upsert — first the TS-changed rows, then the missing rows
 	rows_upserted = 0
 	rows_inserted = 0
 
-	def _upsert_batch(rows, phase_label):
+	def _upsert_batch(rows):
 		nonlocal rows_upserted, rows_inserted
 		for i in range(0, len(rows), BATCH_SIZE):
 			batch = rows[i : i + BATCH_SIZE]
@@ -567,9 +572,9 @@ def _sync_ts_compare(conn, wp_table_doc, wp_conn_doc, frappe_doctype, ts_field):
 					)
 			frappe.db.commit()
 
-	_upsert_batch(changed_rows, "updated")
+	_upsert_batch(changed_rows)
 	if missing_rows:
-		_upsert_batch(missing_rows, "missing")
+		_upsert_batch(missing_rows)
 
 	# Final progress update (always fires so small tables get at least one toast)
 	_publish_sync_progress(

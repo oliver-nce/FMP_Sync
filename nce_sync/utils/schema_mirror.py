@@ -503,6 +503,24 @@ def preview_table_schema(wp_conn_doc, wp_table_doc):
 	if auto_gen_raw:
 		previous_auto_gen = [c.strip().lower() for c in auto_gen_raw.split(",") if c.strip()]
 
+	# Build lookup of existing Frappe field labels (for remap: show saved labels)
+	existing_field_labels = {}
+	existing_columns = set()
+	if wp_table_doc.frappe_doctype and frappe.db.exists("DocType", wp_table_doc.frappe_doctype):
+		col_map_raw = getattr(wp_table_doc, "column_mapping", None)
+		if col_map_raw:
+			col_map = json.loads(col_map_raw)
+			existing_columns = set(col_map.keys())
+
+		meta = frappe.get_meta(wp_table_doc.frappe_doctype)
+		fieldname_to_label = {df.fieldname: df.label for df in meta.fields}
+
+		for wp_col in existing_columns:
+			mapping_info = col_map.get(wp_col, {})
+			fn = mapping_info.get("fieldname", wp_col.lower()) if isinstance(mapping_info, dict) else mapping_info
+			if fn in fieldname_to_label:
+				existing_field_labels[wp_col] = fieldname_to_label[fn]
+
 	preview = []
 	for col in schema["columns"]:
 		col_name = col["COLUMN_NAME"]
@@ -517,18 +535,22 @@ def preview_table_schema(wp_conn_doc, wp_table_doc):
 		is_virtual = "VIRTUAL" in extra.upper() or "GENERATED" in extra.upper()
 		is_auto_increment = "AUTO_INCREMENT" in extra.upper()
 
+		# Use existing Frappe label if available, otherwise auto-generate
+		label = existing_field_labels.get(col_name, col_name.replace("_", " ").title())
+
 		preview.append(
 			{
 				"column_name": col_name,
 				"db_type": col["COLUMN_TYPE"],
 				"proposed_fieldtype": field_mapping["fieldtype"],
-				"label": col_name.replace("_", " ").title(),
+				"label": label,
 				"is_nullable": col["IS_NULLABLE"],
 				"is_primary_key": is_pk,
 				"is_unique": is_unique,
 				"is_indexed": is_indexed,
 				"is_virtual": is_virtual,
 				"is_auto_increment": is_auto_increment,
+				"is_existing": col_name in existing_columns,
 				"length": field_mapping.get("length", 0),
 				"precision": field_mapping.get("precision", 0),
 				"options": field_mapping.get("options", ""),

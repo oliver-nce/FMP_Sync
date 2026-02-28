@@ -500,16 +500,26 @@ function show_preview_dialog(frm, preview_data, mode, new_table_name) {
 
 		let is_reserved_col = RESERVED_FIELDNAMES.includes(f.column_name.toLowerCase());
 		let reserved_cls = is_reserved_col ? " reserved-source-col" : "";
-		let reserved_style = "";
+		let label_styles = "";
+		let label_readonly = "";
 		let reserved_hint = "";
-		if (is_reserved_col) {
+
+		// In remap mode, existing columns get a read-only label
+		let is_locked = mode === "remap" && f.is_existing;
+		if (is_locked) {
+			label_styles = "opacity:0.6;cursor:not-allowed;";
+			label_readonly = " readonly";
+		}
+
+		if (is_reserved_col && !is_locked) {
 			let scrubbed = _scrub_fieldname(f.label);
 			let still_bad = RESERVED_FIELDNAMES.includes(scrubbed);
-			reserved_style = still_bad
-				? ' style="border-color:#dc3545;background-color:#fff0f0;"'
-				: ' style="border-color:#28a745;background-color:#f0fff0;"';
+			label_styles += still_bad
+				? "border-color:#dc3545;background-color:#fff0f0;"
+				: "border-color:#28a745;background-color:#f0fff0;";
 			reserved_hint = `<div class="reserved-label-hint text-danger" style="font-size:11px;margin-top:2px;${still_bad ? "" : "display:none;"}">⚠ "${f.column_name}" is reserved — choose a unique label</div>`;
 		}
+		let label_style_attr = label_styles ? ` style="${label_styles}"` : "";
 
 		html += `
 			<tr ${row_class}>
@@ -538,13 +548,13 @@ function show_preview_dialog(frm, preview_data, mode, new_table_name) {
 				</td>
 				<td>${f.is_nullable === "YES" ? "Yes" : "<strong>No</strong>"}</td>
 				<td>${keys_html}</td>
-				<td>
-					<input type="text" class="form-control form-control-sm field-label-input${reserved_cls}"
-						data-column="${f.column_name}"
-						data-original="${f.label}"
-						value="${f.label}"${reserved_style}>
-					${reserved_hint}
-				</td>
+			<td>
+				<input type="text" class="form-control form-control-sm field-label-input${reserved_cls}"
+					data-column="${f.column_name}"
+					data-original="${f.label}"
+					value="${f.label}"${label_style_attr}${label_readonly}>
+				${reserved_hint}
+			</td>
 			</tr>
 		`;
 	});

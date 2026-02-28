@@ -27,7 +27,7 @@
  "shortcuts": [
   {
    "color": "Blue",
-   "doc_view": "Form",
+   "doc_view": "",
    "label": "WordPress Connection",
    "link_to": "WordPress Connection",
    "type": "DocType"
@@ -42,7 +42,7 @@
   },
   {
    "color": "Blue",
-   "doc_view": "Form",
+   "doc_view": "",
    "label": "Sync Manager",
    "link_to": "Sync Manager",
    "type": "DocType"

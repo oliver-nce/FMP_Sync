@@ -357,6 +357,68 @@ class WPTables(Document):
 		self.save()
 
 	@frappe.whitelist()
+	def remap_schema(self, new_table_name=None, field_overrides=None, label_overrides=None, matching_fields=None, name_field_column=None, auto_generated_columns=None, modified_ts_field=None, created_ts_field=None):
+		"""
+		Remap an existing mirrored DocType to a (possibly renamed) source table.
+		Truncates data, updates source reference, adds any new columns, rebuilds
+		the column mapping, then leaves the DocType ready for a fresh sync.
+		The DocType and its SQL table are preserved so other apps' references stay intact.
+		"""
+		from nce_sync.utils.schema_mirror import mirror_table_schema
+
+		if not self.frappe_doctype:
+			frappe.throw(_("No mirrored DocType to remap"))
+
+		if field_overrides and isinstance(field_overrides, str):
+			field_overrides = json.loads(field_overrides)
+		if label_overrides and isinstance(label_overrides, str):
+			label_overrides = json.loads(label_overrides)
+
+		# Update source table name if it changed
+		if new_table_name and new_table_name != self.table_name:
+			self.table_name = new_table_name
+			self.save()
+
+		# Update matching fields if provided
+		if matching_fields and matching_fields != self.matching_fields:
+			self.matching_fields = matching_fields
+			self.save()
+
+		# Truncate existing data
+		frappe.db.delete(self.frappe_doctype)
+		frappe.db.commit()
+
+		wp_conn = frappe.get_single("WordPress Connection")
+		if not wp_conn:
+			frappe.throw(_("WordPress Connection not configured"))
+
+		# Re-mirror: detects existing DocType and calls update_existing_doctype
+		# which adds new columns without removing existing ones
+		mirror_table_schema(
+			wp_conn,
+			self,
+			field_overrides=field_overrides,
+			label_overrides=label_overrides,
+			name_field_column=name_field_column or None,
+			auto_generated_columns=auto_generated_columns or None,
+			modified_ts_field=modified_ts_field or None,
+			created_ts_field=created_ts_field or None,
+		)
+
+		# Reset sync status
+		self.last_synced = None
+		self.last_sync_status = None
+		self.last_sync_log = "Schema remapped — ready for sync"
+		self.save()
+
+		frappe.msgprint(
+			_("Remapped '{0}' to source table '{1}'. Data cleared — run Sync Now to repopulate.").format(
+				self.frappe_doctype, self.table_name
+			),
+			indicator="green",
+		)
+
+	@frappe.whitelist()
 	def debug_sync_one_row(self):
 		"""
 		Debug: Sync just the first row and show detailed info about what's happening.

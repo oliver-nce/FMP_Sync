@@ -433,6 +433,60 @@ def _fetch_changed_rows(conn, table_name, ts_field, create_ts_field, cutoff):
 	return rows
 
 
+def _fetch_rows_by_keys(conn, table_name, matching_keys, reverse_mapping, column_mapping, key_set):
+	"""
+	Fetch full rows from WP for a specific set of matching-key tuples.
+
+	For single-column keys uses efficient WHERE IN queries (batched).
+	For composite keys falls back to fetching all rows and filtering in Python.
+
+	Args:
+		conn: PyMySQL connection
+		table_name: WordPress table name
+		matching_keys: List of Frappe fieldnames used as matching keys
+		reverse_mapping: Dict mapping Frappe fieldnames to WP column names
+		column_mapping: Dict mapping WP column names to Frappe fieldnames
+		key_set: Set of key tuples to fetch
+
+	Returns:
+		List of row dicts from WordPress
+	"""
+	if not key_set:
+		return []
+
+	if len(matching_keys) == 1:
+		wp_col = reverse_mapping.get(matching_keys[0], matching_keys[0])
+		values = [k[0] for k in key_set if k[0] is not None]
+		if not values:
+			return []
+		rows = []
+		cursor = conn.cursor()
+		for i in range(0, len(values), 1000):
+			batch = values[i : i + 1000]
+			placeholders = ",".join(["%s"] * len(batch))
+			cursor.execute(
+				f"SELECT * FROM `{table_name}` WHERE `{wp_col}` IN ({placeholders})",
+				batch,
+			)
+			rows.extend(cursor.fetchall())
+		cursor.close()
+		return rows
+
+	# Composite key — fetch all and filter in Python
+	cursor = conn.cursor()
+	cursor.execute(f"SELECT * FROM `{table_name}`")
+	all_rows = cursor.fetchall()
+	cursor.close()
+
+	result = []
+	for row in all_rows:
+		converted = _convert_row(row, None, column_mapping)
+		key_tuple = tuple(_normalize_key_value(converted.get(k)) for k in matching_keys)
+		if key_tuple in key_set:
+			result.append(row)
+	return result
+
+
 def _sync_ts_compare(conn, wp_table_doc, wp_conn_doc, frappe_doctype, ts_field):
 	"""
 	Sync using timestamp comparison method.
@@ -455,6 +509,7 @@ def _sync_ts_compare(conn, wp_table_doc, wp_conn_doc, frappe_doctype, ts_field):
 	table_name = wp_table_doc.table_name
 	matching_keys = _get_matching_keys(wp_table_doc)
 	wp_tz = wp_conn_doc.wp_timezone
+	sync_user = getattr(wp_table_doc, "_sync_user", None)
 
 	# Load column mapping (WP column name -> {fieldname, is_virtual})
 	column_mapping = None
@@ -464,55 +519,70 @@ def _sync_ts_compare(conn, wp_table_doc, wp_conn_doc, frappe_doctype, ts_field):
 	# Build reverse mapping for looking up WP column names from Frappe fieldnames
 	reverse_mapping = build_reverse_mapping(column_mapping)
 
-	# Step 1: Delete detection - get all matching keys from WP and delete orphans
+	# Step 1: Delete detection — get all matching keys from WP and delete orphans.
+	# Also returns the set of keys currently in Frappe (after deletes).
 	wp_key_set = _get_wp_key_set(conn, table_name, matching_keys, reverse_mapping, column_mapping)
-	rows_deleted = _delete_orphans(frappe_doctype, matching_keys, wp_key_set)
+	rows_deleted, frappe_key_set = _delete_orphans(frappe_doctype, matching_keys, wp_key_set)
 
-	# Step 2: Get changed rows from WP
+	# Step 2a: Identify WP rows that are completely missing from Frappe
+	missing_keys = wp_key_set - frappe_key_set
+
+	# Step 2b: Get rows changed since last sync (timestamp-based)
 	frappe_ts_field = get_frappe_fieldname(ts_field, column_mapping) if ts_field else None
 	cutoff = _get_cutoff_timestamp(frappe_doctype, frappe_ts_field, wp_tz)
 
-	# Pre-count rows to sync for progress tracking
-	total_to_sync = _count_rows_to_sync(
+	ts_changed_count = _count_rows_to_sync(
 		conn, table_name, ts_field, wp_table_doc.created_timestamp_field, cutoff
 	)
-
 	changed_rows = _fetch_changed_rows(
 		conn, table_name, ts_field, wp_table_doc.created_timestamp_field, cutoff
 	)
 
-	# Step 3: Upsert changed rows in batches
+	# Step 2c: Fetch missing rows (these were skipped by TS cutoff because they
+	# have old timestamps but were never synced into Frappe)
+	missing_rows = _fetch_rows_by_keys(
+		conn, table_name, matching_keys, reverse_mapping, column_mapping, missing_keys
+	)
+
+	# Total for progress tracking: TS-changed + missing (with possible overlap)
+	total_to_sync = ts_changed_count + len(missing_rows)
+
+	# Step 3: Upsert — first the TS-changed rows, then the missing rows
 	rows_upserted = 0
-	for i in range(0, len(changed_rows), BATCH_SIZE):
-		batch = changed_rows[i : i + BATCH_SIZE]
+	rows_inserted = 0
 
-		for row in batch:
-			# Convert row: map WP columns to Frappe fieldnames, convert timestamps
-			converted_row = _convert_row(row, wp_tz, column_mapping)
-			_upsert_record(frappe_doctype, matching_keys, converted_row)
-			rows_upserted += 1
+	def _upsert_batch(rows, phase_label):
+		nonlocal rows_upserted, rows_inserted
+		for i in range(0, len(rows), BATCH_SIZE):
+			batch = rows[i : i + BATCH_SIZE]
+			for row in batch:
+				converted_row = _convert_row(row, wp_tz, column_mapping)
+				was_new = _upsert_record(frappe_doctype, matching_keys, converted_row)
+				rows_upserted += 1
+				if was_new:
+					rows_inserted += 1
+				if rows_upserted % 500 == 0:
+					_publish_sync_progress(
+						wp_table_doc.name, rows_upserted, total_to_sync, user=sync_user,
+					)
+			frappe.db.commit()
 
-			# Progress update every 500 rows (also catches small tables)
-			if rows_upserted % 500 == 0:
-				_publish_sync_progress(
-					wp_table_doc.name, rows_upserted, total_to_sync,
-					user=getattr(wp_table_doc, "_sync_user", None),
-				)
+	_upsert_batch(changed_rows, "updated")
+	if missing_rows:
+		_upsert_batch(missing_rows, "missing")
 
-		# Commit after each batch
-		frappe.db.commit()
-
-	# Final progress update (always fires, so small tables always get at least one toast)
+	# Final progress update (always fires so small tables get at least one toast)
 	_publish_sync_progress(
-		wp_table_doc.name, rows_upserted, total_to_sync,
-		user=getattr(wp_table_doc, "_sync_user", None),
+		wp_table_doc.name, rows_upserted, total_to_sync, user=sync_user,
 	)
 
 	return {
 		"method": "TS Compare",
 		"rows_upserted": rows_upserted,
+		"rows_inserted": rows_inserted,
 		"rows_deleted": rows_deleted,
 		"total_wp_rows": len(wp_key_set),
+		"missing_rows_found": len(missing_rows),
 	}
 
 
@@ -625,6 +695,9 @@ def _upsert_record(frappe_doctype, matching_keys, row_data):
 		frappe_doctype: Name of the Frappe DocType
 		matching_keys: List of field names to match on
 		row_data: Dict of field values from WordPress
+
+	Returns:
+		bool: True if a new record was inserted, False if an existing one was updated
 	"""
 	# Check if record exists - use direct name lookup when matching on name (faster)
 	if matching_keys == ["name"]:
@@ -642,7 +715,6 @@ def _upsert_record(frappe_doctype, matching_keys, row_data):
 	valid_fields = {df.fieldname for df in frappe.get_meta(frappe_doctype).fields}
 
 	if existing:
-		# Update existing record
 		doc = frappe.get_doc(frappe_doctype, existing)
 		for key, value in row_data.items():
 			if key in valid_fields and key != "name":
@@ -650,9 +722,10 @@ def _upsert_record(frappe_doctype, matching_keys, row_data):
 		doc.flags.ignore_permissions = True
 		doc.flags.ignore_mandatory = True
 		doc.save()
+		return False
 	else:
-		# Insert new record
 		_insert_record(frappe_doctype, row_data)
+		return True
 
 
 def _insert_record(frappe_doctype, row_data):
@@ -695,32 +768,34 @@ def _delete_orphans(frappe_doctype, matching_keys, wp_key_set):
 		wp_key_set: Set of key tuples from WordPress
 
 	Returns:
-		int: Number of records deleted
+		tuple: (deleted_count, frappe_key_set) where frappe_key_set contains
+		       all non-temp key tuples currently in Frappe
 	"""
-	# Get all Frappe records' matching keys
 	frappe_records = frappe.get_all(frappe_doctype, fields=["name", *matching_keys], limit_page_length=0)
 
 	deleted_count = 0
+	frappe_key_set = set()
+
 	for record in frappe_records:
 		# Skip temp records (negative integer names) — not yet pushed to WP
 		try:
 			if int(record.name) < 0:
 				continue
 		except (ValueError, TypeError):
-			pass  # Non-integer name — treat as real record, proceed normally
+			pass
 
-		# Build key tuple for this Frappe record (normalized for comparison)
 		frappe_key = tuple(_normalize_key_value(record.get(k)) for k in matching_keys)
 
 		if frappe_key not in wp_key_set:
-			# This record no longer exists in WordPress - delete it
 			frappe.delete_doc(frappe_doctype, record.name, force=True, ignore_permissions=True)
 			deleted_count += 1
+		else:
+			frappe_key_set.add(frappe_key)
 
 	if deleted_count > 0:
 		frappe.db.commit()
 
-	return deleted_count
+	return deleted_count, frappe_key_set
 
 
 def _get_sync_frequency_minutes():
@@ -987,17 +1062,25 @@ def _run_sync_with_status(wp_table_doc):
 			records_created = rows_inserted
 			records_updated = 0
 		else:
-			wp_table_doc.last_sync_log = (
-				f"TS Compare: {rows_upserted} upserted, "
-				f"{rows_deleted} deleted, "
-				f"{result.get('total_wp_rows', 0)} total WP rows, "
-				f"{frappe_count} in Frappe"
-			)
+			missing_found = result.get("missing_rows_found", 0)
+			ts_rows_inserted = result.get("rows_inserted", 0)
+			ts_rows_updated = rows_upserted - ts_rows_inserted
+
+			parts = [f"TS Compare: {rows_upserted} upserted"]
+			if ts_rows_inserted:
+				parts.append(f"{ts_rows_inserted} new")
+			if ts_rows_updated:
+				parts.append(f"{ts_rows_updated} updated")
+			if missing_found:
+				parts.append(f"{missing_found} missing rows recovered")
+			parts.append(f"{rows_deleted} deleted")
+			parts.append(f"{result.get('total_wp_rows', 0)} total WP rows")
+			parts.append(f"{frappe_count} in Frappe")
+
+			wp_table_doc.last_sync_log = ", ".join(parts)
 			records_synced = rows_upserted
-			# For TS Compare, we can't easily distinguish created vs updated
-			# So we put all in "synced" and leave created/updated as 0
-			records_created = 0
-			records_updated = 0
+			records_created = ts_rows_inserted
+			records_updated = ts_rows_updated
 
 		wp_table_doc.save()
 

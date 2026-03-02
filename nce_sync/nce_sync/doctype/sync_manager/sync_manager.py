@@ -2,10 +2,38 @@
 # For license information, please see license.txt
 
 import frappe
+from frappe import _
 from frappe.model.document import Document
 
 
 class SyncManager(Document):
+	@frappe.whitelist()
+	def run_sync_now(self):
+		"""Enqueue an immediate sync for all enabled mirrored tables."""
+		from nce_sync.utils.data_sync import run_sync_for_table
+
+		tables = frappe.get_all(
+			"WP Tables",
+			filters={"auto_sync_active": 1, "mirror_status": "Mirrored"},
+			pluck="name",
+		)
+
+		if not tables:
+			frappe.msgprint(_("No tables with auto-sync enabled"))
+			return _("No tables to sync")
+
+		user = frappe.session.user
+		for table_name in tables:
+			frappe.enqueue(
+				run_sync_for_table,
+				wp_table_name=table_name,
+				user=user,
+				queue="default",
+				is_async=True,
+			)
+
+		return _("{0} sync job(s) queued").format(len(tables))
+
 	@frappe.whitelist()
 	def load_wp_tables(self):
 		"""

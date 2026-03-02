@@ -3,7 +3,6 @@
 
 frappe.ui.form.on("Sync Manager", {
 	refresh(frm) {
-		// Add button to populate tables from WP Tables
 		frm.add_custom_button(__("Load WP Tables"), function () {
 			frm.call({
 				method: "load_wp_tables",
@@ -14,5 +13,24 @@ frappe.ui.form.on("Sync Manager", {
 				},
 			});
 		});
+
+		frm.add_custom_button(__("Run Sync Now"), function () {
+			frappe.confirm(
+				__("Sync all enabled tables now?"),
+				function () {
+					frm.call({
+						method: "run_sync_now",
+						doc: frm.doc,
+						callback: function (r) {
+							frappe.show_alert({
+								message: r.message || __("Sync jobs queued"),
+								indicator: "green",
+							});
+							frm.reload_doc();
+						},
+					});
+				}
+			);
+		}, __("Actions"));
 	},
 });

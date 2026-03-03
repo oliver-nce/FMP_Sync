@@ -137,7 +137,9 @@ doc_events = {
 		"on_trash": "nce_sync.utils.workspace_utils.on_doctype_change"
 	},
 	"*": {
-		"before_insert": "nce_sync.utils.reverse_sync.assign_temp_name"
+		"before_insert": "nce_sync.utils.reverse_sync.assign_temp_name",
+		"on_update": "nce_sync.utils.live_sync.on_record_change",
+		"after_insert": "nce_sync.utils.live_sync.on_record_change",
 	}
 }
 

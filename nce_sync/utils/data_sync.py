@@ -626,26 +626,27 @@ def _sync_truncate_replace(conn, wp_table_doc, wp_conn_doc, frappe_doctype):
 	all_rows = cursor.fetchall()
 	cursor.close()
 
-	# Step 3: Insert all rows in batches
+	# Step 3: Insert all rows in batches (with in_sync flag to prevent live push-back)
 	rows_inserted = 0
-	for i in range(0, len(all_rows), BATCH_SIZE):
-		batch = all_rows[i : i + BATCH_SIZE]
+	frappe.flags.in_sync = True
+	try:
+		for i in range(0, len(all_rows), BATCH_SIZE):
+			batch = all_rows[i : i + BATCH_SIZE]
 
-		for row in batch:
-			# Convert row: map WP columns to Frappe fieldnames, convert timestamps
-			converted_row = _convert_row(row, wp_tz, column_mapping)
-			_insert_record(frappe_doctype, converted_row)
-			rows_inserted += 1
+			for row in batch:
+				converted_row = _convert_row(row, wp_tz, column_mapping)
+				_insert_record(frappe_doctype, converted_row)
+				rows_inserted += 1
 
-			# Progress update every 500 rows (also catches small tables)
-			if rows_inserted % 500 == 0:
-				_publish_sync_progress(
-					wp_table_doc.name, rows_inserted, total_to_sync,
-					user=getattr(wp_table_doc, "_sync_user", None),
-				)
+				if rows_inserted % 500 == 0:
+					_publish_sync_progress(
+						wp_table_doc.name, rows_inserted, total_to_sync,
+						user=getattr(wp_table_doc, "_sync_user", None),
+					)
 
-		# Commit after each batch
-		frappe.db.commit()
+			frappe.db.commit()
+	finally:
+		frappe.flags.in_sync = False
 
 	# Final progress update (always fires)
 	_publish_sync_progress(
@@ -696,6 +697,9 @@ def _upsert_record(frappe_doctype, matching_keys, row_data):
 	Insert or update a single Frappe document by matching key lookup.
 	When matching_keys is ["name"], uses direct frappe.db.exists for faster lookup.
 
+	Sets frappe.flags.in_sync = True while saving so the live_sync hook
+	does not push the inbound WP data back out.
+
 	Args:
 		frappe_doctype: Name of the Frappe DocType
 		matching_keys: List of field names to match on
@@ -719,18 +723,22 @@ def _upsert_record(frappe_doctype, matching_keys, row_data):
 	# Get valid field names from DocType meta
 	valid_fields = {df.fieldname for df in frappe.get_meta(frappe_doctype).fields}
 
-	if existing:
-		doc = frappe.get_doc(frappe_doctype, existing)
-		for key, value in row_data.items():
-			if key in valid_fields and key != "name":
-				doc.set(key, value)
-		doc.flags.ignore_permissions = True
-		doc.flags.ignore_mandatory = True
-		doc.save()
-		return False
-	else:
-		_insert_record(frappe_doctype, row_data)
-		return True
+	frappe.flags.in_sync = True
+	try:
+		if existing:
+			doc = frappe.get_doc(frappe_doctype, existing)
+			for key, value in row_data.items():
+				if key in valid_fields and key != "name":
+					doc.set(key, value)
+			doc.flags.ignore_permissions = True
+			doc.flags.ignore_mandatory = True
+			doc.save()
+			return False
+		else:
+			_insert_record(frappe_doctype, row_data)
+			return True
+	finally:
+		frappe.flags.in_sync = False
 
 
 def _insert_record(frappe_doctype, row_data):

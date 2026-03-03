@@ -105,8 +105,15 @@ class WPTables(Document):
 		"""Set document name from nce_name if provided, otherwise use table_name."""
 		self.name = self.nce_name or self.table_name
 
+	def on_update(self):
+		"""Clear the live-sync cache so write_back_mode changes take effect immediately."""
+		from nce_sync.utils.live_sync import clear_sql_direct_cache
+		clear_sql_direct_cache()
+
 	def on_trash(self):
-		"""Full cascade cleanup: delete Sync Logs, mirrored DocType, and workspace shortcut."""
+		"""Full cascade cleanup: delete Sync Logs, mirrored DocType, workspace shortcut, and clear live-sync cache."""
+		from nce_sync.utils.live_sync import clear_sql_direct_cache
+		clear_sql_direct_cache()
 		# Delete associated Sync Log records
 		sync_logs = frappe.get_all("Sync Log", filters={"wp_table": self.name}, pluck="name")
 		for log_name in sync_logs:

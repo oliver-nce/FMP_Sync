@@ -18,6 +18,7 @@
   "sync_method",
   "column_break_sync",
   "auto_sync_active",
+  "write_back_mode",
   "sync_status_section",
   "last_synced",
   "last_sync_status",
@@ -114,6 +115,14 @@
    "fieldtype": "Check",
    "in_list_view": 1,
    "label": "Auto Sync"
+  },
+  {
+   "default": "Never",
+   "description": "Never: read-only from WP. SQL Direct: auto-push changes to WP via SQL. API Required: local edits allowed, WP push handled externally.",
+   "fieldname": "write_back_mode",
+   "fieldtype": "Select",
+   "label": "Write Back Mode",
+   "options": "Never\nSQL Direct\nAPI Required"
   },
   {
    "fieldname": "sync_status_section",

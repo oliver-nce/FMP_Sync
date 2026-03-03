@@ -260,7 +260,12 @@
 			args: { doctype: doctype },
 			callback: function (r) {
 				if (r.message) {
-					window.open(r.message);
+					var a = document.createElement("a");
+					a.href = r.message;
+					a.download = "";
+					document.body.appendChild(a);
+					a.click();
+					document.body.removeChild(a);
 				}
 			},
 			error: function () {

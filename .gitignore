@@ -56,3 +56,12 @@ jspm_packages/
 
 # Internal documentation (not for public repo)
 _internal/
+Docs/
+DESIGN_SPEC.md
+FIELD_MATCHING_DIALOG_FIXES.md
+HANDOFF.md
+MATCHING_FIELDS_FEATURE.md
+PLAN_APP_FINALIZATION.md
+QUICKSTART.md
+V15_COMPATIBILITY_FIX.md
+WORKSPACE_CLEANUP_FIX.md

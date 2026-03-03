@@ -254,21 +254,26 @@
 	}
 
 	function sendAllToExcel(listview) {
-		const doctype = listview.doctype;
+		var doctype = listview.doctype;
+
+		var handler = function (data) {
+			frappe.realtime.off("excel_export_ready", handler);
+			if (data && data.file_url) {
+				var a = document.createElement("a");
+				a.href = data.file_url;
+				a.download = "";
+				document.body.appendChild(a);
+				a.click();
+				document.body.removeChild(a);
+			}
+		};
+		frappe.realtime.on("excel_export_ready", handler);
+
 		frappe.call({
 			method: "nce_sync.api.export_all_to_excel",
 			args: { doctype: doctype },
-			callback: function (r) {
-				if (r.message) {
-					var a = document.createElement("a");
-					a.href = r.message;
-					a.download = "";
-					document.body.appendChild(a);
-					a.click();
-					document.body.removeChild(a);
-				}
-			},
 			error: function () {
+				frappe.realtime.off("excel_export_ready", handler);
 				frappe.show_alert({
 					message: __("Export failed"),
 					indicator: "red",

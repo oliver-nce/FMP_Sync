@@ -211,29 +211,9 @@ def apply_table_link_changes(to_add, to_delete):
 
 @frappe.whitelist()
 def export_all_to_excel(doctype):
-	"""
-	Export every row and every user-defined column of a DocType to an xlsx file.
-	Returns the file URL for browser download.
-	"""
-	import io
-
-	from openpyxl import Workbook
-	from openpyxl.utils import get_column_letter
-
+	"""Enqueue a background job that exports the full DocType to xlsx."""
 	if not frappe.has_permission(doctype, "read"):
 		frappe.throw(_("Not permitted"), frappe.PermissionError)
-
-	meta = frappe.get_meta(doctype)
-	skip_types = frozenset({
-		"Section Break", "Column Break", "Tab Break",
-		"HTML", "Fold", "Heading",
-	})
-	fields = [
-		df for df in meta.fields
-		if df.fieldtype not in skip_types
-	]
-	fieldnames = ["name"] + [df.fieldname for df in fields]
-	labels = ["ID"] + [df.label or df.fieldname for df in fields]
 
 	total = frappe.db.count(doctype)
 	frappe.publish_realtime(
@@ -241,6 +221,33 @@ def export_all_to_excel(doctype):
 		{"message": f"Exporting {total} records…", "indicator": "blue", "alert": True},
 		user=frappe.session.user,
 	)
+
+	frappe.enqueue(
+		_build_excel_file,
+		doctype=doctype,
+		user=frappe.session.user,
+		queue="default",
+		is_async=True,
+	)
+
+	return "queued"
+
+
+def _build_excel_file(doctype, user):
+	"""Background job: build xlsx and send download URL via realtime."""
+	import io
+
+	from openpyxl import Workbook
+	from openpyxl.utils import get_column_letter
+
+	meta = frappe.get_meta(doctype)
+	skip_types = frozenset({
+		"Section Break", "Column Break", "Tab Break",
+		"HTML", "Fold", "Heading",
+	})
+	fields = [df for df in meta.fields if df.fieldtype not in skip_types]
+	fieldnames = ["name"] + [df.fieldname for df in fields]
+	labels = ["ID"] + [df.label or df.fieldname for df in fields]
 
 	rows = frappe.get_all(
 		doctype,
@@ -278,9 +285,12 @@ def export_all_to_excel(doctype):
 	frappe.db.commit()
 
 	frappe.publish_realtime(
+		"excel_export_ready",
+		{"file_url": file_doc.file_url},
+		user=user,
+	)
+	frappe.publish_realtime(
 		"msgprint",
 		{"message": "Done — the file is in your downloads folder", "indicator": "green", "alert": True},
-		user=frappe.session.user,
+		user=user,
 	)
-
-	return file_doc.file_url

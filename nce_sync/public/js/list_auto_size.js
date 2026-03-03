@@ -282,7 +282,7 @@
 				alertEl = frappe.show_alert({
 					message: __("Exporting {0} records…", [total]),
 					indicator: "blue",
-				}, 0);
+				}, 300);
 			},
 			error: function () {
 				frappe.realtime.off("excel_export_ready", handler);

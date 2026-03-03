@@ -1,0 +1,243 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "field:connector_name",
+ "creation": "2026-03-03 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "connector_section",
+  "connector_name",
+  "service",
+  "status",
+  "column_break_conn1",
+  "base_url",
+  "auth_type",
+  "timeout_seconds",
+  "max_retries",
+  "credentials_section",
+  "api_key",
+  "api_secret",
+  "column_break_cred1",
+  "username",
+  "password",
+  "column_break_cred2",
+  "bearer_token",
+  "oauth_refresh_token",
+  "endpoints_section",
+  "endpoints",
+  "settings_section",
+  "rate_limit_rpm",
+  "custom_headers",
+  "column_break_settings1",
+  "notes",
+  "test_section",
+  "last_tested",
+  "last_test_result",
+  "last_error"
+ ],
+ "fields": [
+  {
+   "fieldname": "connector_section",
+   "fieldtype": "Section Break",
+   "label": "Connector"
+  },
+  {
+   "fieldname": "connector_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Connector Name",
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "service",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Service",
+   "options": "WordPress\nWooCommerce\nGoogle Sheets\nGoogle Maps\nAuthorize.net\nStripe\nCustom",
+   "reqd": 1
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Status",
+   "options": "Active\nInactive\nError",
+   "default": "Inactive"
+  },
+  {
+   "fieldname": "column_break_conn1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "base_url",
+   "fieldtype": "Data",
+   "label": "Base URL",
+   "reqd": 1,
+   "description": "Root URL for the API, e.g. https://ncesoccer.com/wp-json"
+  },
+  {
+   "fieldname": "auth_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Auth Type",
+   "options": "API Key\nBasic Auth\nBearer Token\nOAuth2\nNone",
+   "default": "API Key",
+   "reqd": 1
+  },
+  {
+   "fieldname": "timeout_seconds",
+   "fieldtype": "Int",
+   "label": "Timeout (seconds)",
+   "default": "30"
+  },
+  {
+   "fieldname": "max_retries",
+   "fieldtype": "Int",
+   "label": "Max Retries",
+   "default": "3"
+  },
+  {
+   "fieldname": "credentials_section",
+   "fieldtype": "Section Break",
+   "label": "Credentials",
+   "collapsible": 1
+  },
+  {
+   "fieldname": "api_key",
+   "fieldtype": "Password",
+   "label": "API Key",
+   "depends_on": "eval:['API Key'].includes(doc.auth_type)"
+  },
+  {
+   "fieldname": "api_secret",
+   "fieldtype": "Password",
+   "label": "API Secret",
+   "depends_on": "eval:['API Key'].includes(doc.auth_type)"
+  },
+  {
+   "fieldname": "column_break_cred1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "username",
+   "fieldtype": "Data",
+   "label": "Username",
+   "depends_on": "eval:['Basic Auth'].includes(doc.auth_type)"
+  },
+  {
+   "fieldname": "password",
+   "fieldtype": "Password",
+   "label": "Password",
+   "depends_on": "eval:['Basic Auth'].includes(doc.auth_type)"
+  },
+  {
+   "fieldname": "column_break_cred2",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "bearer_token",
+   "fieldtype": "Password",
+   "label": "Bearer Token",
+   "depends_on": "eval:['Bearer Token'].includes(doc.auth_type)"
+  },
+  {
+   "fieldname": "oauth_refresh_token",
+   "fieldtype": "Password",
+   "label": "OAuth Refresh Token",
+   "depends_on": "eval:['OAuth2'].includes(doc.auth_type)"
+  },
+  {
+   "fieldname": "endpoints_section",
+   "fieldtype": "Section Break",
+   "label": "Endpoints"
+  },
+  {
+   "fieldname": "endpoints",
+   "fieldtype": "Table",
+   "label": "Endpoints",
+   "options": "API Connector Endpoint",
+   "reqd": 0
+  },
+  {
+   "fieldname": "settings_section",
+   "fieldtype": "Section Break",
+   "label": "Settings",
+   "collapsible": 1
+  },
+  {
+   "fieldname": "rate_limit_rpm",
+   "fieldtype": "Int",
+   "label": "Rate Limit (requests/min)",
+   "description": "Optional: max requests per minute to this API"
+  },
+  {
+   "fieldname": "custom_headers",
+   "fieldtype": "Code",
+   "label": "Custom Headers",
+   "options": "JSON",
+   "description": "Additional HTTP headers as JSON object"
+  },
+  {
+   "fieldname": "column_break_settings1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "notes",
+   "fieldtype": "Small Text",
+   "label": "Notes"
+  },
+  {
+   "fieldname": "test_section",
+   "fieldtype": "Section Break",
+   "label": "Connection Test",
+   "collapsible": 1
+  },
+  {
+   "fieldname": "last_tested",
+   "fieldtype": "Datetime",
+   "label": "Last Tested",
+   "read_only": 1
+  },
+  {
+   "fieldname": "last_test_result",
+   "fieldtype": "Select",
+   "label": "Last Test Result",
+   "options": "\nSuccess\nFailed",
+   "read_only": 1
+  },
+  {
+   "fieldname": "last_error",
+   "fieldtype": "Small Text",
+   "label": "Last Error",
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-03-03 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "NCE Sync",
+ "name": "API Connector",
+ "naming_rule": "By fieldname",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

@@ -6,6 +6,7 @@
  "doctype": "DocType",
  "engine": "InnoDB",
  "field_order": [
+  "connection_tab",
   "connector_section",
   "connector_name",
   "service",
@@ -15,6 +16,7 @@
   "auth_type",
   "timeout_seconds",
   "max_retries",
+  "credentials_tab",
   "credentials_section",
   "api_key",
   "api_secret",
@@ -24,23 +26,31 @@
   "column_break_cred2",
   "bearer_token",
   "oauth_refresh_token",
+  "endpoints_tab",
   "endpoints_section",
   "endpoints",
+  "settings_tab",
   "settings_section",
   "rate_limit_rpm",
   "custom_headers",
   "column_break_settings1",
   "notes",
+  "test_tab",
   "test_section",
   "last_tested",
   "last_test_result",
+  "column_break_test1",
   "last_error"
  ],
  "fields": [
   {
+   "fieldname": "connection_tab",
+   "fieldtype": "Tab Break",
+   "label": "Connection"
+  },
+  {
    "fieldname": "connector_section",
-   "fieldtype": "Section Break",
-   "label": "Connector"
+   "fieldtype": "Section Break"
   },
   {
    "fieldname": "connector_name",
@@ -99,10 +109,13 @@
    "default": "3"
   },
   {
+   "fieldname": "credentials_tab",
+   "fieldtype": "Tab Break",
+   "label": "Credentials"
+  },
+  {
    "fieldname": "credentials_section",
-   "fieldtype": "Section Break",
-   "label": "Credentials",
-   "collapsible": 1
+   "fieldtype": "Section Break"
   },
   {
    "fieldname": "api_key",
@@ -149,9 +162,13 @@
    "depends_on": "eval:['OAuth2'].includes(doc.auth_type)"
   },
   {
-   "fieldname": "endpoints_section",
-   "fieldtype": "Section Break",
+   "fieldname": "endpoints_tab",
+   "fieldtype": "Tab Break",
    "label": "Endpoints"
+  },
+  {
+   "fieldname": "endpoints_section",
+   "fieldtype": "Section Break"
   },
   {
    "fieldname": "endpoints",
@@ -161,10 +178,13 @@
    "reqd": 0
   },
   {
+   "fieldname": "settings_tab",
+   "fieldtype": "Tab Break",
+   "label": "Settings"
+  },
+  {
    "fieldname": "settings_section",
-   "fieldtype": "Section Break",
-   "label": "Settings",
-   "collapsible": 1
+   "fieldtype": "Section Break"
   },
   {
    "fieldname": "rate_limit_rpm",
@@ -189,10 +209,13 @@
    "label": "Notes"
   },
   {
+   "fieldname": "test_tab",
+   "fieldtype": "Tab Break",
+   "label": "Test"
+  },
+  {
    "fieldname": "test_section",
-   "fieldtype": "Section Break",
-   "label": "Connection Test",
-   "collapsible": 1
+   "fieldtype": "Section Break"
   },
   {
    "fieldname": "last_tested",
@@ -206,6 +229,10 @@
    "label": "Last Test Result",
    "options": "\nSuccess\nFailed",
    "read_only": 1
+  },
+  {
+   "fieldname": "column_break_test1",
+   "fieldtype": "Column Break"
   },
   {
    "fieldname": "last_error",

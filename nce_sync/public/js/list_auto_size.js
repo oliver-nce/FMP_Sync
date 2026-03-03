@@ -255,9 +255,14 @@
 
 	function sendAllToExcel(listview) {
 		var doctype = listview.doctype;
+		var alertEl = null;
 
 		var handler = function (data) {
 			frappe.realtime.off("excel_export_ready", handler);
+			if (alertEl) {
+				alertEl.remove();
+				alertEl = null;
+			}
 			if (data && data.file_url) {
 				var a = document.createElement("a");
 				a.href = data.file_url;
@@ -272,6 +277,13 @@
 		frappe.call({
 			method: "nce_sync.api.export_all_to_excel",
 			args: { doctype: doctype },
+			callback: function (r) {
+				var total = r.message || 0;
+				alertEl = frappe.show_alert({
+					message: __("Exporting {0} records…", [total]),
+					indicator: "blue",
+				}, 0);
+			},
 			error: function () {
 				frappe.realtime.off("excel_export_ready", handler);
 				frappe.show_alert({

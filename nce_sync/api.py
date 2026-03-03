@@ -216,11 +216,6 @@ def export_all_to_excel(doctype):
 		frappe.throw(_("Not permitted"), frappe.PermissionError)
 
 	total = frappe.db.count(doctype)
-	frappe.publish_realtime(
-		"msgprint",
-		{"message": f"Exporting {total} records…", "indicator": "blue", "alert": True},
-		user=frappe.session.user,
-	)
 
 	frappe.enqueue(
 		_build_excel_file,
@@ -230,7 +225,7 @@ def export_all_to_excel(doctype):
 		is_async=True,
 	)
 
-	return "queued"
+	return total
 
 
 def _build_excel_file(doctype, user):
@@ -287,10 +282,5 @@ def _build_excel_file(doctype, user):
 	frappe.publish_realtime(
 		"excel_export_ready",
 		{"file_url": file_doc.file_url},
-		user=user,
-	)
-	frappe.publish_realtime(
-		"msgprint",
-		{"message": "Done — the file is in your downloads folder", "indicator": "green", "alert": True},
 		user=user,
 	)

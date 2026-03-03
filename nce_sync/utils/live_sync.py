@@ -40,11 +40,15 @@ def _get_sql_direct_map():
     if cached is not None:
         return cached
 
-    rows = frappe.get_all(
-        "WP Tables",
-        filters={"write_back_mode": "SQL Direct", "mirror_status": "Mirrored"},
-        fields=["name", "frappe_doctype"],
-    )
+    try:
+        rows = frappe.get_all(
+            "WP Tables",
+            filters={"write_back_mode": "SQL Direct", "mirror_status": "Mirrored"},
+            fields=["name", "frappe_doctype"],
+        )
+    except Exception:
+        # Column may not exist yet during migration — treat as empty
+        return {}
     mapping = {r.frappe_doctype: r.name for r in rows if r.frappe_doctype}
     frappe.cache().set_value(CACHE_KEY, mapping)
     return mapping

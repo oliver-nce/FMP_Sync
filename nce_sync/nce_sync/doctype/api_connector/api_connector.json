@@ -55,7 +55,7 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Service",
-   "options": "WordPress\nWooCommerce\nGoogle Sheets\nGoogle Maps\nAuthorize.net\nStripe\nCustom",
+   "options": "WordPress\nWooCommerce\nGoogle Sheets\nGoogle Maps\nAuthorize.net\nStripe\nSendGrid\nTwilio\nCustom",
    "reqd": 1
   },
   {

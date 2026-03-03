@@ -207,3 +207,80 @@ def apply_table_link_changes(to_add, to_delete):
 			msgs.append(_("FAILED {0}.{1}: {2}").format(dt, fname, str(e)))
 
 	return "; ".join(msgs) if msgs else _("No changes applied")
+
+
+@frappe.whitelist()
+def export_all_to_excel(doctype):
+	"""
+	Export every row and every user-defined column of a DocType to an xlsx file.
+	Returns the file URL for browser download.
+	"""
+	import io
+
+	from openpyxl import Workbook
+	from openpyxl.utils import get_column_letter
+
+	if not frappe.has_permission(doctype, "read"):
+		frappe.throw(_("Not permitted"), frappe.PermissionError)
+
+	meta = frappe.get_meta(doctype)
+	skip_types = frozenset({
+		"Section Break", "Column Break", "Tab Break",
+		"HTML", "Fold", "Heading",
+	})
+	fields = [
+		df for df in meta.fields
+		if df.fieldtype not in skip_types
+	]
+	fieldnames = ["name"] + [df.fieldname for df in fields]
+	labels = ["ID"] + [df.label or df.fieldname for df in fields]
+
+	total = frappe.db.count(doctype)
+	frappe.publish_realtime(
+		"msgprint",
+		{"message": f"Exporting {total} records…", "indicator": "blue", "alert": True},
+		user=frappe.session.user,
+	)
+
+	rows = frappe.get_all(
+		doctype,
+		fields=fieldnames,
+		limit_page_length=0,
+		order_by="name asc",
+	)
+
+	wb = Workbook()
+	ws = wb.active
+	ws.title = doctype[:31]
+
+	ws.append(labels)
+	for cell in ws[1]:
+		cell.font = cell.font.copy(bold=True)
+
+	for row in rows:
+		ws.append([row.get(f) for f in fieldnames])
+
+	for idx, _ in enumerate(labels, 1):
+		ws.column_dimensions[get_column_letter(idx)].width = 18
+
+	buf = io.BytesIO()
+	wb.save(buf)
+	buf.seek(0)
+
+	fname = f"{doctype.replace(' ', '_')}.xlsx"
+	file_doc = frappe.get_doc({
+		"doctype": "File",
+		"file_name": fname,
+		"content": buf.getvalue(),
+		"is_private": 1,
+	})
+	file_doc.save(ignore_permissions=True)
+	frappe.db.commit()
+
+	frappe.publish_realtime(
+		"msgprint",
+		{"message": "Done — the file is in your downloads folder", "indicator": "green", "alert": True},
+		user=frappe.session.user,
+	)
+
+	return file_doc.file_url

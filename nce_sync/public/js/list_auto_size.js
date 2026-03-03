@@ -253,6 +253,25 @@
 		});
 	}
 
+	function sendAllToExcel(listview) {
+		const doctype = listview.doctype;
+		frappe.call({
+			method: "nce_sync.api.export_all_to_excel",
+			args: { doctype: doctype },
+			callback: function (r) {
+				if (r.message) {
+					window.open(r.message);
+				}
+			},
+			error: function () {
+				frappe.show_alert({
+					message: __("Export failed"),
+					indicator: "red",
+				});
+			},
+		});
+	}
+
 	function addResizeButton(listview) {
 		if (!listview || listview._resizeBtnAdded) return;
 		if (!listview.page) return;
@@ -265,13 +284,15 @@
 		// Auto-resize silently on load
 		setTimeout(() => autoSizeColumns(listview), 200);
 
-		const handler = () => manualResize(listview);
+		const resizeHandler = () => manualResize(listview);
+		const excelHandler = () => sendAllToExcel(listview);
 
-		// Prefer visible button; fallback to dropdown
 		if (page.add_inner_button) {
-			page.add_inner_button(__("Resize Columns"), handler);
+			page.add_inner_button(__("Resize Columns"), resizeHandler);
+			page.add_inner_button(__("Send All to Excel"), excelHandler);
 		} else {
-			page.add_action_item(__("Resize Columns"), handler);
+			page.add_action_item(__("Resize Columns"), resizeHandler);
+			page.add_action_item(__("Send All to Excel"), excelHandler);
 		}
 	}
 

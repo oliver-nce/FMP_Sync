@@ -1,8 +1,8 @@
-__version__ = "2.1.0"
+__version__ = "2.1.1"
 
 import frappe
 import frappe.email.queue as _email_queue
-from frappe.core.doctype.communication import mixins as _comm_mixins
+from frappe.email.email_body import EMail as _EMail
 
 # ---------------------------------------------------------------------------
 # Patch 1: Suppress unsubscribe footer when Email Account has it disabled.
@@ -21,18 +21,19 @@ def _patched_get_unsubscribe_message(unsubscribe_message, expose_recipients):
 _email_queue.get_unsubscribe_message = _patched_get_unsubscribe_message
 
 # ---------------------------------------------------------------------------
-# Patch 2: Strip Reply-To header entirely.  Without an incoming email
-# account Frappe falls back to the session user's email which is wrong.
-# Removing Reply-To lets mail clients reply to the From address instead.
+# Patch 2: Omit Reply-To header from outgoing emails.
+# Frappe v15 forces Reply-To to the session user's email when no incoming
+# account exists — even if the From was already replaced by the outgoing
+# account.  Clearing reply_to after validate() causes the header-building
+# code to skip it, so mail clients reply to the From address.
+# Fixed natively in Frappe v16 via PR #36774.
 # ---------------------------------------------------------------------------
-_original_sendmail_input_dict = _comm_mixins.CommunicationEmailMixin.sendmail_input_dict
+_original_email_validate = _EMail.validate
 
 
-def _patched_sendmail_input_dict(self, **kwargs):
-	result = _original_sendmail_input_dict(self, **kwargs)
-	if result:
-		result["reply_to"] = None
-	return result
+def _patched_email_validate(self):
+	_original_email_validate(self)
+	self.reply_to = ""
 
 
-_comm_mixins.CommunicationEmailMixin.sendmail_input_dict = _patched_sendmail_input_dict
+_EMail.validate = _patched_email_validate

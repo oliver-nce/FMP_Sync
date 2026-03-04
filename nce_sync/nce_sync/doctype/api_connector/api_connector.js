@@ -1,6 +1,14 @@
 // Copyright (c) 2026, Oliver Reid and contributors
 // For license information, please see license.txt
 
+const CREDENTIAL_FIELDS = [
+	"api_key",
+	"api_secret",
+	"password",
+	"bearer_token",
+	"oauth_refresh_token",
+];
+
 frappe.ui.form.on("API Connector", {
 	refresh(frm) {
 		if (!frm.is_new()) {
@@ -34,9 +42,82 @@ frappe.ui.form.on("API Connector", {
 					show_setup_guide(frm);
 				});
 			}
+
+			add_copy_buttons(frm);
 		}
 	},
 });
+
+function add_copy_buttons(frm) {
+	CREDENTIAL_FIELDS.forEach(function (fieldname) {
+		if (!frm.fields_dict[fieldname]) return;
+		let $wrapper = frm.fields_dict[fieldname].$wrapper;
+		if ($wrapper.find(".copy-credential-btn").length) return;
+
+		let $btn = $(`<button class="btn btn-xs btn-default copy-credential-btn"
+			style="position: absolute; right: 4px; top: 28px; z-index: 1; padding: 2px 8px;"
+			title="${__("Copy to clipboard")}">
+			<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
+				fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+				stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+				<path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+		</button>`);
+
+		$wrapper.css("position", "relative");
+		$wrapper.append($btn);
+
+		$btn.on("click", function (e) {
+			e.preventDefault();
+			e.stopPropagation();
+			frappe.call({
+				method: "nce_sync.nce_sync.doctype.api_connector.api_connector.get_credential",
+				args: { connector_name: frm.doc.name, fieldname: fieldname },
+				callback: function (r) {
+					if (r.message) {
+						frappe.utils.copy_to_clipboard(r.message);
+						frappe.show_alert({
+							message: __("Copied {0}", [frm.fields_dict[fieldname].df.label]),
+							indicator: "green",
+						});
+					} else {
+						frappe.show_alert({
+							message: __("No value to copy"),
+							indicator: "orange",
+						});
+					}
+				},
+			});
+		});
+	});
+
+	// Username is a Data field — copy directly
+	if (frm.fields_dict.username && frm.doc.username) {
+		let $wrapper = frm.fields_dict.username.$wrapper;
+		if (!$wrapper.find(".copy-credential-btn").length) {
+			let $btn = $(`<button class="btn btn-xs btn-default copy-credential-btn"
+				style="position: absolute; right: 4px; top: 28px; z-index: 1; padding: 2px 8px;"
+				title="${__("Copy to clipboard")}">
+				<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
+					fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+					stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+					<path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+			</button>`);
+
+			$wrapper.css("position", "relative");
+			$wrapper.append($btn);
+
+			$btn.on("click", function (e) {
+				e.preventDefault();
+				e.stopPropagation();
+				frappe.utils.copy_to_clipboard(frm.doc.username);
+				frappe.show_alert({
+					message: __("Copied Username"),
+					indicator: "green",
+				});
+			});
+		}
+	}
+}
 
 function show_setup_guide(frm) {
 	if (frm._setup_guide_dialog && frm._setup_guide_dialog.display) {

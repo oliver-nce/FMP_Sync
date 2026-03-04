@@ -12,6 +12,20 @@ class APIConnector(Document):
 
 
 @frappe.whitelist()
+def get_credential(connector_name, fieldname):
+	"""Return the decrypted value of a Password field for copying to clipboard."""
+	allowed = {"api_key", "api_secret", "password", "bearer_token", "oauth_refresh_token"}
+	if fieldname not in allowed:
+		frappe.throw("Invalid credential field")
+
+	doc = frappe.get_doc("API Connector", connector_name)
+	doc.check_permission("read")
+
+	value = doc.get_password(fieldname) if getattr(doc, fieldname, None) else None
+	return value or ""
+
+
+@frappe.whitelist()
 def test_connection(connector_name):
 	"""Test an API Connector by sending a request to its base_url."""
 	doc = frappe.get_doc("API Connector", connector_name)

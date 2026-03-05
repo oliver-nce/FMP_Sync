@@ -313,14 +313,18 @@ def _get_wp_key_set(conn, table_name, matching_keys, reverse_mapping, column_map
 	return wp_key_set
 
 
-def _get_cutoff_timestamp(frappe_doctype, frappe_ts_field, wp_tz):
+def _get_cutoff_timestamp(frappe_doctype, frappe_ts_field, wp_tz, fallback_ts_field=None):
 	"""
 	Get the cutoff timestamp for incremental sync by finding max timestamp in Frappe.
 
+	Tries the primary ts field first; if all values are NULL (common when the
+	source table has no modified_ts), falls back to the created ts field.
+
 	Args:
 		frappe_doctype: Name of the Frappe DocType
-		frappe_ts_field: Frappe fieldname for the timestamp field
+		frappe_ts_field: Frappe fieldname for the primary timestamp field
 		wp_tz: WordPress timezone name
+		fallback_ts_field: Optional Frappe fieldname to try if primary yields NULL
 
 	Returns:
 		Cutoff datetime in WP timezone, or None if no data exists
@@ -329,11 +333,15 @@ def _get_cutoff_timestamp(frappe_doctype, frappe_ts_field, wp_tz):
 		return None
 
 	max_ts_result = frappe.db.sql(f"SELECT MAX(`{frappe_ts_field}`) FROM `tab{frappe_doctype}`")
+	max_ts = max_ts_result[0][0] if max_ts_result else None
 
-	if not max_ts_result or not max_ts_result[0][0]:
+	if not max_ts and fallback_ts_field and fallback_ts_field != frappe_ts_field:
+		max_ts_result = frappe.db.sql(f"SELECT MAX(`{fallback_ts_field}`) FROM `tab{frappe_doctype}`")
+		max_ts = max_ts_result[0][0] if max_ts_result else None
+
+	if not max_ts:
 		return None
 
-	max_ts = max_ts_result[0][0]
 	if isinstance(max_ts, str):
 		max_ts = datetime.fromisoformat(max_ts)
 
@@ -529,7 +537,11 @@ def _sync_ts_compare(conn, wp_table_doc, wp_conn_doc, frappe_doctype, ts_field):
 
 	# Step 2b: Get rows changed since last sync (timestamp-based)
 	frappe_ts_field = get_frappe_fieldname(ts_field, column_mapping) if ts_field else None
-	cutoff = _get_cutoff_timestamp(frappe_doctype, frappe_ts_field, wp_tz)
+	frappe_create_ts_field = (
+		get_frappe_fieldname(wp_table_doc.created_timestamp_field, column_mapping)
+		if wp_table_doc.created_timestamp_field else None
+	)
+	cutoff = _get_cutoff_timestamp(frappe_doctype, frappe_ts_field, wp_tz, fallback_ts_field=frappe_create_ts_field)
 
 	changed_rows = _fetch_changed_rows(
 		conn, table_name, ts_field, wp_table_doc.created_timestamp_field, cutoff
@@ -732,6 +744,7 @@ def _upsert_record(frappe_doctype, matching_keys, row_data):
 					doc.set(key, value)
 			doc.flags.ignore_permissions = True
 			doc.flags.ignore_mandatory = True
+			doc.flags.ignore_links = True
 			doc.save()
 			return False
 		else:
@@ -764,6 +777,7 @@ def _insert_record(frappe_doctype, row_data):
 
 	doc.flags.ignore_permissions = True
 	doc.flags.ignore_mandatory = True
+	doc.flags.ignore_links = True
 	doc.insert()
 
 

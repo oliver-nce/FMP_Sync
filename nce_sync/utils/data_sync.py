@@ -315,29 +315,36 @@ def _get_wp_key_set(conn, table_name, matching_keys, reverse_mapping, column_map
 
 def _get_cutoff_timestamp(frappe_doctype, frappe_ts_field, wp_tz, fallback_ts_field=None):
 	"""
-	Get the cutoff timestamp for incremental sync by finding max timestamp in Frappe.
+	Get the cutoff timestamp for incremental sync by finding the latest
+	effective timestamp already stored in Frappe.
 
-	Tries the primary ts field first; if all values are NULL (common when the
-	source table has no modified_ts), falls back to the created ts field.
+	Uses GREATEST(COALESCE(mod_ts, create_ts), create_ts) so that rows
+	with NULL modified_ts are handled via their created_ts — mirroring
+	the same logic applied on the WP query side.
+
+	When no modified_ts field exists at all, uses created_ts directly.
 
 	Args:
 		frappe_doctype: Name of the Frappe DocType
-		frappe_ts_field: Frappe fieldname for the primary timestamp field
+		frappe_ts_field: Frappe fieldname for the modified timestamp (may be None)
 		wp_tz: WordPress timezone name
-		fallback_ts_field: Optional Frappe fieldname to try if primary yields NULL
+		fallback_ts_field: Frappe fieldname for the created timestamp (may be None)
 
 	Returns:
 		Cutoff datetime in WP timezone, or None if no data exists
 	"""
-	if not frappe_ts_field:
+	if not frappe_ts_field and not fallback_ts_field:
 		return None
 
-	max_ts_result = frappe.db.sql(f"SELECT MAX(`{frappe_ts_field}`) FROM `tab{frappe_doctype}`")
-	max_ts = max_ts_result[0][0] if max_ts_result else None
+	if frappe_ts_field and fallback_ts_field and frappe_ts_field != fallback_ts_field:
+		ts_expr = f"GREATEST(COALESCE(`{frappe_ts_field}`, `{fallback_ts_field}`), `{fallback_ts_field}`)"
+	elif frappe_ts_field:
+		ts_expr = f"`{frappe_ts_field}`"
+	else:
+		ts_expr = f"`{fallback_ts_field}`"
 
-	if not max_ts and fallback_ts_field and fallback_ts_field != frappe_ts_field:
-		max_ts_result = frappe.db.sql(f"SELECT MAX(`{fallback_ts_field}`) FROM `tab{frappe_doctype}`")
-		max_ts = max_ts_result[0][0] if max_ts_result else None
+	max_ts_result = frappe.db.sql(f"SELECT MAX({ts_expr}) FROM `tab{frappe_doctype}`")
+	max_ts = max_ts_result[0][0] if max_ts_result else None
 
 	if not max_ts:
 		return None
@@ -374,6 +381,17 @@ def _publish_sync_progress(table_name, rows_processed, total_rows, user=None):
 	frappe.db.commit()
 
 
+def _build_ts_expr(ts_field, create_ts_field):
+	"""Build a SQL expression that returns the effective timestamp for a row.
+
+	Uses GREATEST of modified and created timestamps.  When modified_ts may be
+	NULL, COALESCE ensures we fall back to created_ts.
+	"""
+	if create_ts_field and create_ts_field != ts_field:
+		return f"GREATEST(COALESCE(`{ts_field}`, `{create_ts_field}`), `{create_ts_field}`)"
+	return f"COALESCE(`{ts_field}`, '1970-01-01')"
+
+
 def _count_rows_to_sync(conn, table_name, ts_field, create_ts_field, cutoff):
 	"""
 	Count how many rows will be synced, using the same WHERE clause as _fetch_changed_rows.
@@ -391,13 +409,11 @@ def _count_rows_to_sync(conn, table_name, ts_field, create_ts_field, cutoff):
 	cursor = conn.cursor()
 
 	if cutoff:
-		if create_ts_field and create_ts_field != ts_field:
-			cursor.execute(
-				f"SELECT COUNT(*) as cnt FROM `{table_name}` WHERE `{ts_field}` >= %s OR `{create_ts_field}` >= %s",
-				(cutoff, cutoff),
-			)
-		else:
-			cursor.execute(f"SELECT COUNT(*) as cnt FROM `{table_name}` WHERE `{ts_field}` >= %s", (cutoff,))
+		ts_expr = _build_ts_expr(ts_field, create_ts_field)
+		cursor.execute(
+			f"SELECT COUNT(*) as cnt FROM `{table_name}` WHERE {ts_expr} > %s",
+			(cutoff,),
+		)
 	else:
 		cursor.execute(f"SELECT COUNT(*) as cnt FROM `{table_name}`")
 
@@ -409,6 +425,9 @@ def _count_rows_to_sync(conn, table_name, ts_field, create_ts_field, cutoff):
 def _fetch_changed_rows(conn, table_name, ts_field, create_ts_field, cutoff):
 	"""
 	Fetch rows from WordPress that have changed since the cutoff.
+
+	Uses GREATEST(COALESCE(modified_ts, created_ts), created_ts) so rows
+	with NULL modified_ts are correctly handled via their created_ts.
 
 	Args:
 		conn: PyMySQL connection
@@ -423,17 +442,12 @@ def _fetch_changed_rows(conn, table_name, ts_field, create_ts_field, cutoff):
 	cursor = conn.cursor()
 
 	if cutoff:
-		if create_ts_field and create_ts_field != ts_field:
-			# Check both: modified OR created since cutoff
-			cursor.execute(
-				f"SELECT * FROM `{table_name}` WHERE `{ts_field}` >= %s OR `{create_ts_field}` >= %s",
-				(cutoff, cutoff),
-			)
-		else:
-			# Only mod_ts available
-			cursor.execute(f"SELECT * FROM `{table_name}` WHERE `{ts_field}` >= %s", (cutoff,))
+		ts_expr = _build_ts_expr(ts_field, create_ts_field)
+		cursor.execute(
+			f"SELECT * FROM `{table_name}` WHERE {ts_expr} > %s",
+			(cutoff,),
+		)
 	else:
-		# No cutoff - get all rows
 		cursor.execute(f"SELECT * FROM `{table_name}`")
 
 	rows = cursor.fetchall()
@@ -567,18 +581,26 @@ def _sync_ts_compare(conn, wp_table_doc, wp_conn_doc, frappe_doctype, ts_field):
 	# Step 3: Upsert — first the TS-changed rows, then the missing rows
 	rows_upserted = 0
 	rows_inserted = 0
+	rows_skipped = 0
+	skip_errors = []
 
 	def _upsert_batch(rows):
-		nonlocal rows_upserted, rows_inserted
+		nonlocal rows_upserted, rows_inserted, rows_skipped, skip_errors
 		for i in range(0, len(rows), BATCH_SIZE):
 			batch = rows[i : i + BATCH_SIZE]
 			for row in batch:
-				converted_row = _convert_row(row, wp_tz, column_mapping)
-				was_new = _upsert_record(frappe_doctype, matching_keys, converted_row)
-				rows_upserted += 1
-				if was_new:
-					rows_inserted += 1
-				if rows_upserted % 500 == 0:
+				try:
+					converted_row = _convert_row(row, wp_tz, column_mapping)
+					was_new = _upsert_record(frappe_doctype, matching_keys, converted_row)
+					rows_upserted += 1
+					if was_new:
+						rows_inserted += 1
+				except Exception as e:
+					rows_skipped += 1
+					if len(skip_errors) < 10:
+						skip_errors.append(str(e)[:200])
+					frappe.db.rollback()
+				if (rows_upserted + rows_skipped) % 500 == 0:
 					_publish_sync_progress(
 						wp_table_doc.name, rows_upserted, total_to_sync, user=sync_user,
 					)
@@ -587,6 +609,12 @@ def _sync_ts_compare(conn, wp_table_doc, wp_conn_doc, frappe_doctype, ts_field):
 	_upsert_batch(changed_rows)
 	if missing_rows:
 		_upsert_batch(missing_rows)
+
+	if rows_skipped:
+		frappe.log_error(
+			title=f"Sync skipped rows: {wp_table_doc.table_name}",
+			message=f"Skipped {rows_skipped} rows.\n" + "\n".join(skip_errors),
+		)
 
 	# Final progress update (always fires so small tables get at least one toast)
 	_publish_sync_progress(
@@ -598,6 +626,7 @@ def _sync_ts_compare(conn, wp_table_doc, wp_conn_doc, frappe_doctype, ts_field):
 		"rows_upserted": rows_upserted,
 		"rows_inserted": rows_inserted,
 		"rows_deleted": rows_deleted,
+		"rows_skipped": rows_skipped,
 		"total_wp_rows": len(wp_key_set),
 		"missing_rows_found": len(missing_rows),
 	}
@@ -990,7 +1019,7 @@ def run_sync_for_table(wp_table_name, user=None):
 	label = wp_table_doc.nce_name or wp_table_doc.table_name
 
 	try:
-		_run_sync_with_status(wp_table_doc)
+		_run_sync_with_status(wp_table_doc, suppress_notifications=True)
 
 		frappe.db.commit()
 		frappe.publish_realtime(
@@ -1016,7 +1045,7 @@ def run_sync_for_table(wp_table_name, user=None):
 		)
 
 
-def _run_sync_with_status(wp_table_doc):
+def _run_sync_with_status(wp_table_doc, suppress_notifications=False):
 	"""
 	Run sync and update status fields on the WP Tables document.
 	Also creates a Sync Log record for audit trail.
@@ -1034,6 +1063,10 @@ def _run_sync_with_status(wp_table_doc):
 
 	sync_started = now_datetime()
 	sync_method = wp_table_doc.sync_method or "TS Compare"
+
+	if suppress_notifications:
+		frappe.flags.in_import = True
+		frappe.flags.mute_emails = True
 
 	try:
 		result = sync_table(wp_table_doc)
@@ -1122,6 +1155,11 @@ def _run_sync_with_status(wp_table_doc):
 
 		frappe.log_error(title=f"Sync Error: {wp_table_doc.table_name}", message=str(e))
 		raise
+
+	finally:
+		if suppress_notifications:
+			frappe.flags.in_import = False
+			frappe.flags.mute_emails = False
 
 
 def _create_sync_log(wp_table_name, sync_method, sync_started, status="Success",

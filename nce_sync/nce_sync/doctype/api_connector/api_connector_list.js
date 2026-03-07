@@ -22,15 +22,16 @@ const AI_BADGE =
 
 const CHAT_STYLES = `<style>
 .ai-chat-messages {
-	height: 380px; overflow-y: auto; padding: 16px;
+	height: 450px; overflow-y: auto; padding: 18px;
 	background: var(--bg-light-gray, #f8f9fa); border-radius: 8px;
-	display: flex; flex-direction: column; gap: 12px;
+	display: flex; flex-direction: column; gap: 14px;
 }
 .ai-msg { display: flex; }
 .ai-msg-user { justify-content: flex-end; }
 .ai-bubble {
-	max-width: 80%; padding: 10px 14px; border-radius: 14px;
-	font-size: 13px; line-height: 1.55; word-wrap: break-word;
+	max-width: 80%; padding: 12px 16px; border-radius: 14px;
+	font-size: 15px; line-height: 1.6; word-wrap: break-word;
+	color: #1a1a1a;
 }
 .ai-msg-assistant .ai-bubble {
 	background: #fff; border: 1px solid var(--border-color, #d1d8dd);
@@ -39,17 +40,19 @@ const CHAT_STYLES = `<style>
 .ai-msg-user .ai-bubble {
 	background: #e3f2fd; border-bottom-right-radius: 4px;
 }
-.ai-bubble p { margin: 0 0 8px; }
+.ai-bubble p { margin: 0 0 10px; }
 .ai-bubble p:last-child { margin-bottom: 0; }
-.ai-bubble ul, .ai-bubble ol { margin: 4px 0; padding-left: 20px; }
+.ai-bubble ul, .ai-bubble ol { margin: 6px 0; padding-left: 22px; }
+.ai-bubble li { margin-bottom: 4px; }
+.ai-bubble strong { color: #111; }
 .ai-typing {
-	display: flex; align-items: center; gap: 4px; padding: 10px 14px;
+	display: flex; align-items: center; gap: 4px; padding: 12px 16px;
 	background: #fff; border: 1px solid var(--border-color, #d1d8dd);
 	border-radius: 14px; border-bottom-left-radius: 4px;
 	width: fit-content;
 }
 .ai-typing .dot {
-	width: 6px; height: 6px; border-radius: 50%; background: #888;
+	width: 7px; height: 7px; border-radius: 50%; background: #888;
 	animation: ai-bounce 1.2s infinite;
 }
 .ai-typing .dot:nth-child(2) { animation-delay: 0.2s; }
@@ -59,9 +62,22 @@ const CHAT_STYLES = `<style>
 	30% { transform: translateY(-4px); }
 }
 .ai-chat-input {
-	display: flex; gap: 8px; margin-top: 12px; align-items: center;
+	display: flex; gap: 8px; margin-top: 14px; align-items: center;
 }
-.ai-chat-input input { flex: 1; border-radius: 8px; }
+.ai-chat-input input {
+	flex: 1; border-radius: 8px; font-size: 15px;
+	padding: 8px 12px; color: #1a1a1a;
+}
+.ai-chat-input button { font-size: 14px; padding: 7px 16px; }
+.ai-chat-dialog .modal-dialog {
+	max-width: 800px; cursor: move; resize: both; overflow: auto;
+	min-width: 400px; min-height: 300px;
+}
+.ai-chat-dialog .modal-header { cursor: move; }
+.ai-chat-dialog .modal-dialog::after {
+	content: ""; position: absolute; bottom: 0; right: 0;
+	width: 16px; height: 16px; cursor: nwse-resize;
+}
 </style>`;
 
 // ── Chat dialog ────────────────────────────────────────────────────────────
@@ -161,6 +177,46 @@ function open_ai_chat(listview) {
 	});
 
 	d.show();
+
+	// Mark dialog for custom styling
+	d.$wrapper.addClass("ai-chat-dialog");
+
+	// Make draggable via header
+	let $modal = d.$wrapper.find(".modal-dialog");
+	let $header = d.$wrapper.find(".modal-header");
+	let isDragging = false;
+	let dragOffsetX, dragOffsetY;
+
+	$header.on("mousedown", function (e) {
+		if ($(e.target).closest("button").length) return;
+		isDragging = true;
+		let rect = $modal[0].getBoundingClientRect();
+		dragOffsetX = e.clientX - rect.left;
+		dragOffsetY = e.clientY - rect.top;
+		$modal.css("transition", "none");
+		e.preventDefault();
+	});
+
+	$(document).on("mousemove.aichat", function (e) {
+		if (!isDragging) return;
+		$modal.css({
+			position: "fixed",
+			left: e.clientX - dragOffsetX + "px",
+			top: e.clientY - dragOffsetY + "px",
+			margin: 0,
+			transform: "none",
+		});
+	});
+
+	$(document).on("mouseup.aichat", function () {
+		isDragging = false;
+	});
+
+	d.onhide = function () {
+		$(document).off("mousemove.aichat");
+		$(document).off("mouseup.aichat");
+	};
+
 	$input.focus();
 }
 

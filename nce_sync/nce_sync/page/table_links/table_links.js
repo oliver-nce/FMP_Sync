@@ -278,10 +278,7 @@ function build_mermaid_erd(data) {
 }
 
 function safe_mermaid_name(name) {
-	if (/\s/.test(name)) {
-		return '"' + name.replace(/"/g, "'") + '"';
-	}
-	return name;
+	return name.replace(/[^a-zA-Z0-9]/g, "_");
 }
 
 function find_label(tables, doctype) {
@@ -325,11 +322,19 @@ function render_erd($container, data) {
 				$container.html(
 					'<div style="overflow-x: auto; padding: 1rem;">' + result.svg + "</div>"
 				);
+			}).catch(function (e) {
+				$container.html(
+					'<div class="text-danger" style="padding: 2rem;">' +
+					__("Mermaid render error: {0}", [e.message || e]) +
+					"<pre style='text-align:left;font-size:12px;margin-top:10px;'>" +
+					frappe.utils.escape_html(spec) +
+					"</pre></div>"
+				);
 			});
 		} catch (e) {
 			$container.html(
 				'<div class="text-danger" style="padding: 2rem;">' +
-				__("Failed to render diagram") +
+				__("Failed to render diagram: {0}", [e.message || e]) +
 				"<pre style='text-align:left;font-size:12px;margin-top:10px;'>" +
 				frappe.utils.escape_html(spec) +
 				"</pre></div>"

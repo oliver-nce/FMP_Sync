@@ -113,6 +113,8 @@ _GENERATE_SYSTEM = (
 	'  "max_retries": 3,\n'
 	'  "rate_limit_rpm": 0,\n'
 	'  "notes": "<HTML credential-setup instructions>",\n'
+	'  "implementation_guide": "<HTML overview of the service functionality, '
+	'common patterns, and how to make use of it>",\n'
 	'  "endpoints": [\n'
 	"    {\n"
 	'      "endpoint_name": "<Human-readable name>",\n'
@@ -123,13 +125,15 @@ _GENERATE_SYSTEM = (
 	'      "description": "<what it does>",\n'
 	'      "documentation_url": "<docs URL>",\n'
 	'      "sample_submission": {},\n'
-	'      "sample_response": {}\n'
+	'      "sample_response": {},\n'
+	'      "implementation_guide": "<usage notes, links to docs, example code>"\n'
 	"    }\n"
 	"  ]\n"
 	"}\n\n"
 	"Include only the endpoints the user asked for (or the most useful 5-10 "
 	"if they did not specify). sample_submission and sample_response must be "
-	"JSON objects or null."
+	"JSON objects or null. implementation_guide fields should include links "
+	"to the relevant service documentation pages."
 )
 
 
@@ -233,6 +237,7 @@ def create_connector_from_ai(connector_data):
 	doc.max_retries = connector_data.get("max_retries", 3)
 	doc.rate_limit_rpm = connector_data.get("rate_limit_rpm", 0)
 	doc.notes = connector_data.get("notes", "")
+	doc.implementation_guide = connector_data.get("implementation_guide", "")
 	doc.status = "Inactive"
 
 	for ep in connector_data.get("endpoints", []):
@@ -246,6 +251,7 @@ def create_connector_from_ai(connector_data):
 			"documentation_url": ep.get("documentation_url", ""),
 			"sample_submission": ep.get("sample_submission", ""),
 			"sample_response": ep.get("sample_response", ""),
+			"implementation_guide": ep.get("implementation_guide", ""),
 		})
 
 	doc.insert()

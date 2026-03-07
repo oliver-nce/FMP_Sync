@@ -37,11 +37,17 @@ frappe.ui.form.on("API Connector", {
 				});
 			});
 
-			if (frm.doc.notes) {
-				frm.add_custom_button(__("Setup Guide"), function () {
-					show_setup_guide(frm);
-				});
-			}
+		if (frm.doc.notes) {
+			frm.add_custom_button(__("Setup Guide"), function () {
+				show_guide_popup(frm, "Setup Guide", frm.doc.notes);
+			});
+		}
+
+		if (frm.doc.implementation_guide) {
+			frm.add_custom_button(__("Implementation Guide"), function () {
+				show_guide_popup(frm, "Implementation Guide", frm.doc.implementation_guide);
+			});
+		}
 
 			add_copy_buttons(frm);
 		}
@@ -119,14 +125,17 @@ function add_copy_buttons(frm) {
 	}
 }
 
-function show_setup_guide(frm) {
-	if (frm._setup_guide_dialog && frm._setup_guide_dialog.display) {
-		frm._setup_guide_dialog.show();
+function show_guide_popup(frm, guide_type, content) {
+	let cache_key = "_guide_dialog_" + guide_type.replace(/\s/g, "_").toLowerCase();
+	if (frm[cache_key] && frm[cache_key].display) {
+		frm[cache_key].show();
 		return;
 	}
 
+	let ns = guide_type.replace(/\s/g, "").toLowerCase();
+
 	let d = new frappe.ui.Dialog({
-		title: __("{0} — Setup Guide", [frm.doc.connector_name]),
+		title: __("{0} — {1}", [frm.doc.connector_name, guide_type]),
 		size: "large",
 		fields: [
 			{
@@ -141,14 +150,14 @@ function show_setup_guide(frm) {
 	});
 
 	d.fields_dict.guide_content.$wrapper.html(
-		'<div class="setup-guide-content" style="' +
+		'<div style="' +
 			"padding: 15px; " +
 			"font-size: 14px; " +
 			"line-height: 1.6; " +
 			"max-height: 70vh; " +
 			"overflow-y: auto;" +
 			'">' +
-			frm.doc.notes +
+			content +
 			"</div>"
 	);
 
@@ -157,13 +166,11 @@ function show_setup_guide(frm) {
 		cursor: "move",
 	});
 
-	// Make draggable
 	let modal_dialog = d.$wrapper.find(".modal-dialog");
 	let header = d.$wrapper.find(".modal-header");
 	let isDragging = false;
 	let offsetX, offsetY;
 
-	// Remove modal centering so absolute positioning works
 	d.$wrapper.find(".modal").css({
 		display: "flex",
 		"align-items": "flex-start",
@@ -172,12 +179,12 @@ function show_setup_guide(frm) {
 		"padding-right": "20px",
 	});
 
-	// Allow clicking behind the dialog
 	d.$wrapper.find(".modal-backdrop").css("display", "none");
 	d.$wrapper.find(".modal").css("pointer-events", "none");
 	modal_dialog.css("pointer-events", "auto");
 
 	header.on("mousedown", function (e) {
+		if ($(e.target).closest("button").length) return;
 		isDragging = true;
 		let rect = modal_dialog[0].getBoundingClientRect();
 		offsetX = e.clientX - rect.left;
@@ -186,7 +193,7 @@ function show_setup_guide(frm) {
 		e.preventDefault();
 	});
 
-	$(document).on("mousemove.setupguide", function (e) {
+	$(document).on("mousemove." + ns, function (e) {
 		if (!isDragging) return;
 		modal_dialog.css({
 			position: "fixed",
@@ -197,15 +204,15 @@ function show_setup_guide(frm) {
 		});
 	});
 
-	$(document).on("mouseup.setupguide", function () {
+	$(document).on("mouseup." + ns, function () {
 		isDragging = false;
 	});
 
 	d.onhide = function () {
-		$(document).off("mousemove.setupguide");
-		$(document).off("mouseup.setupguide");
+		$(document).off("mousemove." + ns);
+		$(document).off("mouseup." + ns);
 	};
 
-	frm._setup_guide_dialog = d;
+	frm[cache_key] = d;
 	d.show();
 }

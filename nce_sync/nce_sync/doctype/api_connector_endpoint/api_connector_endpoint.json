@@ -16,7 +16,9 @@
   "samples_section",
   "sample_submission",
   "column_break_ep2",
-  "sample_response"
+  "sample_response",
+  "guide_section",
+  "implementation_guide"
  ],
  "fields": [
   {
@@ -105,6 +107,18 @@
    "label": "Sample Response",
    "options": "JSON",
    "description": "Example response from this endpoint"
+  },
+  {
+   "fieldname": "guide_section",
+   "fieldtype": "Section Break",
+   "label": "Implementation Guide",
+   "collapsible": 1
+  },
+  {
+   "fieldname": "implementation_guide",
+   "fieldtype": "Small Text",
+   "label": "Implementation Guide",
+   "description": "Usage notes, links to service documentation, and example code for this endpoint"
   }
  ],
  "index_web_pages_for_search": 0,

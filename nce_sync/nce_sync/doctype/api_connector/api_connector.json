@@ -35,6 +35,9 @@
   "custom_headers",
   "column_break_settings1",
   "notes",
+  "guide_tab",
+  "guide_section",
+  "implementation_guide",
   "test_tab",
   "test_section",
   "last_tested",
@@ -207,6 +210,21 @@
    "fieldname": "notes",
    "fieldtype": "Text Editor",
    "label": "Notes"
+  },
+  {
+   "fieldname": "guide_tab",
+   "fieldtype": "Tab Break",
+   "label": "Implementation Guide"
+  },
+  {
+   "fieldname": "guide_section",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "implementation_guide",
+   "fieldtype": "Text Editor",
+   "label": "Implementation Guide",
+   "description": "How to use this service — functionality overview, common patterns, and usage examples"
   },
   {
    "fieldname": "test_tab",

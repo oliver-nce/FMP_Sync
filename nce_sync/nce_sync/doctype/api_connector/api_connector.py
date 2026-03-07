@@ -59,7 +59,6 @@ def test_connection(connector_name):
 				headers["Authorization"] = f"Bearer {token}"
 
 		if doc.custom_headers:
-			import json
 			try:
 				extra = json.loads(doc.custom_headers)
 				headers.update(extra)
@@ -83,68 +82,93 @@ def test_connection(connector_name):
 		return {"success": False, "error": str(e)}
 
 
-@frappe.whitelist()
-def ai_discover_connector(service_name):
-	"""Use the Anthropic connector's API key to research an API service."""
+# ── Anthropic AI helpers ────────────────────────────────────────────────────
+
+_CHAT_SYSTEM = (
+	"You are an API documentation expert helping a user set up an API connector "
+	"in their business application.\n\n"
+	"Rules:\n"
+	"1. Understand what API service the user needs.\n"
+	"2. If the name is broad (e.g. AWS, Google, Microsoft), list the main "
+	"service areas with a one-line description each and ask which one they need.\n"
+	"3. Once a specific service is identified, briefly list the key endpoints "
+	"available and confirm which ones the user wants.\n"
+	"4. Keep responses concise — bullet points, short paragraphs.\n"
+	"5. When you have enough information, tell the user you're ready and "
+	'suggest they click **Generate Connector**.\n\n'
+	"Do NOT produce JSON or code blocks. Have a natural conversation."
+)
+
+_GENERATE_SYSTEM = (
+	"You are an API documentation expert. Based on the conversation that "
+	"follows, generate a connector definition.\n\n"
+	"Return ONLY a valid JSON object (no markdown fences, no commentary) "
+	"matching this schema:\n\n"
+	"{\n"
+	'  "connector_name": "<service name>",\n'
+	'  "service": "<one of: ' + ", ".join(VALID_SERVICES) + ', or Custom>",\n'
+	'  "base_url": "<root API URL>",\n'
+	'  "auth_type": "<one of: ' + ", ".join(VALID_AUTH_TYPES) + '>",\n'
+	'  "timeout_seconds": 30,\n'
+	'  "max_retries": 3,\n'
+	'  "rate_limit_rpm": 0,\n'
+	'  "notes": "<HTML credential-setup instructions>",\n'
+	'  "endpoints": [\n'
+	"    {\n"
+	'      "endpoint_name": "<Human-readable name>",\n'
+	'      "endpoint_key": "<snake_case identifier>",\n'
+	'      "http_method": "<GET|POST|PUT|PATCH|DELETE>",\n'
+	'      "content_type": "application/json",\n'
+	'      "path": "<path appended to base_url>",\n'
+	'      "description": "<what it does>",\n'
+	'      "documentation_url": "<docs URL>",\n'
+	'      "sample_submission": {},\n'
+	'      "sample_response": {}\n'
+	"    }\n"
+	"  ]\n"
+	"}\n\n"
+	"Include only the endpoints the user asked for (or the most useful 5-10 "
+	"if they did not specify). sample_submission and sample_response must be "
+	"JSON objects or null."
+)
+
+
+def _get_anthropic_key():
+	"""Return the decrypted Anthropic API key or throw."""
 	if not frappe.db.exists("API Connector", "Anthropic"):
 		frappe.throw("No 'Anthropic' connector found. Create one with a valid API key first.")
-
-	anthropic_doc = frappe.get_doc("API Connector", "Anthropic")
-	api_key = anthropic_doc.get_password("api_key") if anthropic_doc.api_key else None
-	if not api_key:
+	doc = frappe.get_doc("API Connector", "Anthropic")
+	key = doc.get_password("api_key") if doc.api_key else None
+	if not key:
 		frappe.throw("The Anthropic connector has no API Key configured.")
+	return key
 
-	prompt = (
-		f'Research the "{service_name}" REST API and return ONLY a valid JSON object '
-		f"(no markdown, no explanation) with this structure:\n\n"
-		f'{{\n'
-		f'  "connector_name": "{service_name}",\n'
-		f'  "service": "<if it matches one of [{", ".join(VALID_SERVICES)}] use that '
-		f'exact name; otherwise Custom>",\n'
-		f'  "base_url": "<root API URL>",\n'
-		f'  "auth_type": "<one of: {", ".join(VALID_AUTH_TYPES)}>",\n'
-		f'  "timeout_seconds": 30,\n'
-		f'  "max_retries": 3,\n'
-		f'  "rate_limit_rpm": 0,\n'
-		f'  "notes": "<HTML with brief credential-setup instructions>",\n'
-		f'  "endpoints": [\n'
-		f'    {{\n'
-		f'      "endpoint_name": "<Human-readable name>",\n'
-		f'      "endpoint_key": "<snake_case identifier>",\n'
-		f'      "http_method": "<one of: {", ".join(VALID_METHODS)}>",\n'
-		f'      "content_type": "application/json",\n'
-		f'      "path": "<URL path appended to base_url>",\n'
-		f'      "description": "<What this endpoint does>",\n'
-		f'      "documentation_url": "<URL to docs for this endpoint>",\n'
-		f'      "sample_submission": {{}},\n'
-		f'      "sample_response": {{}}\n'
-		f"    }}\n"
-		f"  ]\n"
-		f"}}\n\n"
-		f"Include the 5-10 most commonly used endpoints. "
-		f"sample_submission / sample_response must be JSON objects (or null for GET). "
-		f"Return ONLY valid JSON."
-	)
 
+def _call_anthropic(system, messages, max_tokens=1024, timeout=60):
+	"""Send a request to the Anthropic Messages API and return the text."""
+	key = _get_anthropic_key()
 	resp = requests.post(
 		"https://api.anthropic.com/v1/messages",
 		headers={
-			"x-api-key": api_key,
+			"x-api-key": key,
 			"anthropic-version": "2023-06-01",
 			"content-type": "application/json",
 		},
 		json={
 			"model": "claude-sonnet-4-20250514",
-			"max_tokens": 4096,
-			"messages": [{"role": "user", "content": prompt}],
+			"max_tokens": max_tokens,
+			"system": system,
+			"messages": messages,
 		},
-		timeout=90,
+		timeout=timeout,
 	)
-
 	if resp.status_code != 200:
 		frappe.throw(f"Anthropic API error (HTTP {resp.status_code}): {resp.text[:500]}")
+	return resp.json().get("content", [{}])[0].get("text", "")
 
-	text = resp.json().get("content", [{}])[0].get("text", "")
+
+def _parse_connector_json(text):
+	"""Strip markdown fences and parse the JSON connector payload."""
 	text = text.strip()
 	if text.startswith("```"):
 		text = "\n".join(text.split("\n")[1:])
@@ -164,8 +188,28 @@ def ai_discover_connector(service_name):
 				ep[field] = json.dumps(val, indent=2)
 			elif val is None:
 				ep[field] = ""
-
 	return data
+
+
+@frappe.whitelist()
+def ai_discover_chat(messages):
+	"""Handle one conversational turn for the AI Discover flow."""
+	if isinstance(messages, str):
+		messages = json.loads(messages)
+	reply = _call_anthropic(_CHAT_SYSTEM, messages, max_tokens=1024, timeout=60)
+	return {"reply": reply}
+
+
+@frappe.whitelist()
+def ai_discover_generate(messages):
+	"""Generate the final connector JSON from conversation context."""
+	if isinstance(messages, str):
+		messages = json.loads(messages)
+	gen_messages = messages + [
+		{"role": "user", "content": "Generate the connector definition now."},
+	]
+	text = _call_anthropic(_GENERATE_SYSTEM, gen_messages, max_tokens=4096, timeout=90)
+	return _parse_connector_json(text)
 
 
 @frappe.whitelist()

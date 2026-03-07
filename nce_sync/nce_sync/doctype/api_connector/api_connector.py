@@ -216,6 +216,87 @@ def ai_discover_generate(messages):
 	return _parse_connector_json(text)
 
 
+_GUIDE_SYSTEM = (
+	"You are an API documentation expert. Generate implementation guides "
+	"for the API connector described below.\n\n"
+	"Return ONLY a valid JSON object (no markdown fences, no commentary) with:\n\n"
+	"{\n"
+	'  "connector_guide": "<HTML string: service overview, main capabilities, '
+	"common integration patterns, authentication notes, rate-limiting / "
+	'best practices, links to official docs>",\n'
+	'  "endpoint_guides": {\n'
+	'    "<endpoint_key>": "<text: what the endpoint does in detail, '
+	"required/optional parameters, link to specific docs page, "
+	'common usage examples, error handling tips>"\n'
+	"  }\n"
+	"}\n\n"
+	"connector_guide must be HTML (use <h4>, <p>, <ul>, <ol>, <code>, <a>). "
+	"endpoint_guides values are plain text with URLs."
+)
+
+
+@frappe.whitelist()
+def ai_generate_guide(connector_name):
+	"""Generate implementation guides for a connector and its endpoints."""
+	doc = frappe.get_doc("API Connector", connector_name)
+
+	endpoints_info = []
+	for ep in doc.endpoints:
+		endpoints_info.append({
+			"name": ep.endpoint_name,
+			"key": ep.endpoint_key,
+			"method": ep.http_method,
+			"path": ep.path,
+			"description": ep.description or "",
+			"documentation_url": ep.documentation_url or "",
+		})
+
+	prompt = (
+		f"Service: {doc.connector_name}\n"
+		f"Type: {doc.service}\n"
+		f"Base URL: {doc.base_url}\n"
+		f"Auth Type: {doc.auth_type}\n\n"
+		f"Endpoints:\n{json.dumps(endpoints_info, indent=2)}\n\n"
+		f"Generate the implementation guides now."
+	)
+
+	text = _call_anthropic(
+		_GUIDE_SYSTEM,
+		[{"role": "user", "content": prompt}],
+		max_tokens=4096,
+		timeout=90,
+	)
+
+	text = text.strip()
+	if text.startswith("```"):
+		text = "\n".join(text.split("\n")[1:])
+		if text.rstrip().endswith("```"):
+			text = text.rstrip()[:-3]
+		text = text.strip()
+
+	try:
+		data = json.loads(text)
+	except json.JSONDecodeError as e:
+		frappe.throw(f"Failed to parse AI response: {e}\n\nRaw: {text[:1000]}")
+
+	doc.implementation_guide = data.get("connector_guide", "")
+
+	endpoint_guides = data.get("endpoint_guides", {})
+	filled = 0
+	for ep in doc.endpoints:
+		guide = endpoint_guides.get(ep.endpoint_key, "")
+		if guide:
+			ep.implementation_guide = guide
+			filled += 1
+
+	doc.save()
+
+	return {
+		"connector_guide": doc.implementation_guide,
+		"endpoint_count": filled,
+	}
+
+
 @frappe.whitelist()
 def create_connector_from_ai(connector_data):
 	"""Create an API Connector document from AI-discovered data."""

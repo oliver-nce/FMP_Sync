@@ -43,11 +43,25 @@ frappe.ui.form.on("API Connector", {
 			});
 		}
 
-		if (frm.doc.implementation_guide) {
-			frm.add_custom_button(__("Implementation Guide"), function () {
-				show_guide_popup(frm, "Implementation Guide", frm.doc.implementation_guide);
-			});
-		}
+		let $guide_btn = frm.add_custom_button(
+			__("Implementation Guide"),
+			function () {
+				if (frm.doc.implementation_guide) {
+					show_guide_popup(
+						frm,
+						"Implementation Guide",
+						frm.doc.implementation_guide
+					);
+				} else {
+					generate_implementation_guide(frm);
+				}
+			}
+		);
+		$guide_btn.append(
+			' <span style="background:#7c3aed;color:#fff;font-size:9px;' +
+				"padding:1px 5px;border-radius:3px;font-weight:600;" +
+				'vertical-align:middle;margin-left:2px;">AI</span>'
+		);
 
 			add_copy_buttons(frm);
 		}
@@ -123,6 +137,34 @@ function add_copy_buttons(frm) {
 			});
 		}
 	}
+}
+
+function generate_implementation_guide(frm) {
+	frappe.call({
+		method:
+			"nce_sync.nce_sync.doctype.api_connector.api_connector.ai_generate_guide",
+		args: { connector_name: frm.doc.name },
+		freeze: true,
+		freeze_message: __("AI is generating the implementation guide…"),
+		callback(r) {
+			if (r.message) {
+				frm.reload_doc();
+				frappe.show_alert(
+					{
+						message: __("Generated guide for {0} ({1} endpoint guides)", [
+							frm.doc.connector_name,
+							r.message.endpoint_count,
+						]),
+						indicator: "green",
+					},
+					7
+				);
+				if (r.message.connector_guide) {
+					show_guide_popup(frm, "Implementation Guide", r.message.connector_guide);
+				}
+			}
+		},
+	});
 }
 
 function show_guide_popup(frm, guide_type, content) {

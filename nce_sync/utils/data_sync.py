@@ -21,8 +21,6 @@ from nce_sync.utils.schema_mirror import get_wp_connection
 # Batch size for upserts to avoid long DB locks
 BATCH_SIZE = 500
 
-# Buffer time (minutes) to catch records modified during previous sync
-SYNC_BUFFER_MINUTES = 5
 
 
 # =============================================================================
@@ -352,8 +350,7 @@ def _get_cutoff_timestamp(frappe_doctype, frappe_ts_field, wp_tz, fallback_ts_fi
 	if isinstance(max_ts, str):
 		max_ts = datetime.fromisoformat(max_ts)
 
-	# Apply buffer to catch records modified during previous sync
-	cutoff = max_ts - timedelta(minutes=SYNC_BUFFER_MINUTES)
+	cutoff = max_ts
 
 	# Convert from Frappe TZ to WP TZ for the query
 	return convert_frappe_ts_to_wp_tz(cutoff, wp_tz)
@@ -515,7 +512,7 @@ def _sync_ts_compare(conn, wp_table_doc, wp_conn_doc, frappe_doctype, ts_field):
 
 	Steps:
 	1. Pull matching keys from WP, diff against Frappe, delete orphans
-	2. Pull changed rows (ts_field >= last_synced - buffer), convert TZ
+	2. Pull changed rows (ts_field > last_synced), convert TZ
 	3. Upsert into Frappe DocType by matching key
 
 	Args:

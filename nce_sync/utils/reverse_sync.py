@@ -126,6 +126,7 @@ def _looks_like_temp_or_hash(name):
 		pass
 	# Frappe hash format: 10 hex chars
 	import re
+
 	return bool(re.fullmatch(r"[0-9a-f]{10}", name.lower()))
 
 
@@ -154,9 +155,18 @@ def _build_wp_row(frappe_doc, column_mapping, skip_auto_generated=True):
 	  • standard Frappe meta fields (owner, creation, modified, etc.)
 	"""
 	_FRAPPE_META = {
-		"name", "owner", "creation", "modified", "modified_by",
-		"docstatus", "idx", "doctype", "_user_tags", "_comments",
-		"_assign", "_liked_by",
+		"name",
+		"owner",
+		"creation",
+		"modified",
+		"modified_by",
+		"docstatus",
+		"idx",
+		"doctype",
+		"_user_tags",
+		"_comments",
+		"_assign",
+		"_liked_by",
 	}
 
 	row = {}

@@ -8,13 +8,32 @@ from frappe import _
 from frappe.model.document import Document
 
 # Core Frappe DocType names - never drop these tables (safety guard)
-_NEVER_DROP_DOCTYPES = frozenset({
-	"DocType", "DocField", "DocPerm", "DocType Action", "DocType Link",
-	"User", "User Permission", "Role", "Module Def", "File",
-	"Error Log", "Error Snapshot", "Scheduled Job Log", "Activity Log",
-	"Singles", "DefaultValue", "Property Setter", "Custom Field",
-	"Workflow", "Workflow State", "Workflow Action", "Workflow Transition",
-})
+_NEVER_DROP_DOCTYPES = frozenset(
+	{
+		"DocType",
+		"DocField",
+		"DocPerm",
+		"DocType Action",
+		"DocType Link",
+		"User",
+		"User Permission",
+		"Role",
+		"Module Def",
+		"File",
+		"Error Log",
+		"Error Snapshot",
+		"Scheduled Job Log",
+		"Activity Log",
+		"Singles",
+		"DefaultValue",
+		"Property Setter",
+		"Custom Field",
+		"Workflow",
+		"Workflow State",
+		"Workflow Action",
+		"Workflow Transition",
+	}
+)
 
 
 def _is_safe_to_drop_table(doctype_name):
@@ -36,16 +55,17 @@ def _collect_soft_dependencies(doctype_name):
 	Return a dict of all soft-dependency document names that reference doctype_name.
 	These are artifacts Frappe does NOT clean up automatically on DocType deletion.
 	"""
+
 	def names(dt, filters):
 		return frappe.get_all(dt, filters=filters, pluck="name")
 
 	return {
-		"Report":         names("Report",         {"ref_doctype": doctype_name}),
-		"Dashboard Chart":names("Dashboard Chart", {"document_type": doctype_name}),
-		"Number Card":    names("Number Card",     {"document_type": doctype_name}),
-		"Client Script":  names("Client Script",   {"dt": doctype_name}),
-		"Kanban Board":   names("Kanban Board",    {"reference_doctype": doctype_name}),
-		"Print Format":   names("Print Format",    {"doc_type": doctype_name}),
+		"Report": names("Report", {"ref_doctype": doctype_name}),
+		"Dashboard Chart": names("Dashboard Chart", {"document_type": doctype_name}),
+		"Number Card": names("Number Card", {"document_type": doctype_name}),
+		"Client Script": names("Client Script", {"dt": doctype_name}),
+		"Kanban Board": names("Kanban Board", {"reference_doctype": doctype_name}),
+		"Print Format": names("Print Format", {"doc_type": doctype_name}),
 	}
 
 
@@ -106,13 +126,15 @@ class WPTables(Document):
 		self.name = self.nce_name or self.table_name
 
 	def on_update(self):
-		"""Clear the live-sync cache so write_back_mode changes take effect immediately."""
+		"""Invalidate the listen-for-changes cache so any toggle takes effect immediately."""
 		from nce_sync.utils.live_sync import clear_sql_direct_cache
+
 		clear_sql_direct_cache()
 
 	def on_trash(self):
 		"""Full cascade cleanup: delete Sync Logs, mirrored DocType, workspace shortcut, and clear live-sync cache."""
 		from nce_sync.utils.live_sync import clear_sql_direct_cache
+
 		clear_sql_direct_cache()
 		# Delete associated Sync Log records
 		sync_logs = frappe.get_all("Sync Log", filters={"wp_table": self.name}, pluck="name")
@@ -142,9 +164,9 @@ class WPTables(Document):
 			is_custom = frappe.db.get_value("DocType", name, "custom")
 			if not is_custom:
 				frappe.throw(
-					_(
-						"'{0}' is a system DocType and cannot be used. Please choose a different name."
-					).format(name)
+					_("'{0}' is a system DocType and cannot be used. Please choose a different name.").format(
+						name
+					)
 				)
 			else:
 				other_table = frappe.db.get_value(
@@ -193,7 +215,16 @@ class WPTables(Document):
 			self.table_name = original_table_name
 
 	@frappe.whitelist()
-	def mirror_schema(self, field_overrides=None, label_overrides=None, matching_fields=None, name_field_column=None, auto_generated_columns=None, modified_ts_field=None, created_ts_field=None):
+	def mirror_schema(
+		self,
+		field_overrides=None,
+		label_overrides=None,
+		matching_fields=None,
+		name_field_column=None,
+		auto_generated_columns=None,
+		modified_ts_field=None,
+		created_ts_field=None,
+	):
 		"""Mirror this specific table's schema to a Frappe DocType."""
 		try:
 			from nce_sync.utils.schema_mirror import mirror_table_schema
@@ -371,7 +402,17 @@ class WPTables(Document):
 		self.save()
 
 	@frappe.whitelist()
-	def remap_schema(self, new_table_name=None, field_overrides=None, label_overrides=None, matching_fields=None, name_field_column=None, auto_generated_columns=None, modified_ts_field=None, created_ts_field=None):
+	def remap_schema(
+		self,
+		new_table_name=None,
+		field_overrides=None,
+		label_overrides=None,
+		matching_fields=None,
+		name_field_column=None,
+		auto_generated_columns=None,
+		modified_ts_field=None,
+		created_ts_field=None,
+	):
 		"""
 		Remap an existing mirrored DocType to a (possibly renamed) source table.
 		Truncates data, updates source reference, adds any new columns, rebuilds

@@ -12,16 +12,16 @@ frappe.pages["table-links"].on_page_load = function (wrapper) {
 
 	page.main.append(
 		"<style>" +
-		".nce-grid-diagonal{background:#f5f5f5!important;color:#999;text-align:center}" +
-		".nce-grid-cell{text-align:center;vertical-align:middle}" +
-		".nce-grid-row-label{background:#fafafa}" +
-		".nce-links-grid td,.nce-links-grid th{padding:8px 12px}" +
-		".nce-tab-bar{border-bottom:1px solid #d1d8dd;margin-bottom:15px}" +
-		".nce-tab-bar .btn{border:none;border-bottom:2px solid transparent;border-radius:0;margin-right:10px;padding:8px 16px;font-weight:500;color:#8d99a6}" +
-		".nce-tab-bar .btn.active{color:#171717;border-bottom-color:var(--primary)}" +
-		".nce-erd-wrapper{padding:1rem;text-align:center;min-height:200px}" +
-		".nce-erd-wrapper svg{max-width:100%}" +
-		"</style>"
+			".nce-grid-diagonal{background:#f5f5f5!important;color:#999;text-align:center}" +
+			".nce-grid-cell{text-align:center;vertical-align:middle}" +
+			".nce-grid-row-label{background:#fafafa}" +
+			".nce-links-grid td,.nce-links-grid th{padding:8px 12px}" +
+			".nce-tab-bar{border-bottom:1px solid #d1d8dd;margin-bottom:15px}" +
+			".nce-tab-bar .btn{border:none;border-bottom:2px solid transparent;border-radius:0;margin-right:10px;padding:8px 16px;font-weight:500;color:#8d99a6}" +
+			".nce-tab-bar .btn.active{color:#171717;border-bottom-color:var(--primary)}" +
+			".nce-erd-wrapper{padding:1rem;text-align:center;min-height:200px}" +
+			".nce-erd-wrapper svg{max-width:100%}" +
+			"</style>",
 	);
 
 	// Tab bar
@@ -102,7 +102,7 @@ function load_and_render_grid($container) {
 	$container.html(
 		'<div class="text-muted" style="padding: 2rem; text-align: center;">' +
 			__("Loading...") +
-			"</div>"
+			"</div>",
 	);
 
 	load_data(function (data) {
@@ -117,8 +117,10 @@ function render_grid($container, data) {
 	if (tables.length === 0) {
 		$container.html(
 			'<div class="text-muted" style="padding: 2rem; text-align: center;">' +
-				__("No mirrored tables yet. Mirror some tables from WP Tables first.") +
-				"</div>"
+				__(
+					"No tables yet. Mirror a WP table or link a native DocType from WP Tables first.",
+				) +
+				"</div>",
 		);
 		return;
 	}
@@ -195,13 +197,16 @@ function render_grid($container, data) {
 
 	$container.find(".nce-link-btn").on("click", function () {
 		const $btn = $(this);
-		show_link_dialog({
-			source: $btn.data("source"),
-			sourceLabel: $btn.data("source-label"),
-			target: $btn.data("target"),
-			targetLabel: $btn.data("target-label"),
-			links: $btn.data("links") || [],
-		}, $container);
+		show_link_dialog(
+			{
+				source: $btn.data("source"),
+				sourceLabel: $btn.data("source-label"),
+				target: $btn.data("target"),
+				targetLabel: $btn.data("target-label"),
+				links: $btn.data("links") || [],
+			},
+			$container,
+		);
 	});
 }
 
@@ -229,7 +234,11 @@ function load_mermaid(callback) {
 	const script = document.createElement("script");
 	script.src = MERMAID_CDN;
 	script.onload = function () {
-		window.mermaid.initialize({ startOnLoad: false, theme: "default", securityLevel: "loose" });
+		window.mermaid.initialize({
+			startOnLoad: false,
+			theme: "default",
+			securityLevel: "loose",
+		});
 		mermaidLoaded = true;
 		mermaidLoading = false;
 		callback();
@@ -290,15 +299,15 @@ function find_label(tables, doctype) {
 
 function render_erd($container, data) {
 	$container.html(
-		'<div class="text-muted" style="padding: 2rem;">' + __("Loading diagram...") + "</div>"
+		'<div class="text-muted" style="padding: 2rem;">' + __("Loading diagram...") + "</div>",
 	);
 
 	load_mermaid(function (err) {
 		if (err) {
 			$container.html(
 				'<div class="text-muted" style="padding: 2rem;">' +
-				__("Could not load Mermaid library. Check your internet connection.") +
-				"</div>"
+					__("Could not load Mermaid library. Check your internet connection.") +
+					"</div>",
 			);
 			return;
 		}
@@ -308,8 +317,8 @@ function render_erd($container, data) {
 		if (spec.trim() === "erDiagram") {
 			$container.html(
 				'<div class="text-muted" style="padding: 2rem;">' +
-				__("No relationships defined yet. Use the Define tab to create links.") +
-				"</div>"
+					__("No relationships defined yet. Use the Define tab to create links.") +
+					"</div>",
 			);
 			return;
 		}
@@ -318,26 +327,29 @@ function render_erd($container, data) {
 		$container.html('<div class="mermaid" id="' + id + '"></div>');
 
 		try {
-			window.mermaid.render(id + "-svg", spec).then(function (result) {
-				$container.html(
-					'<div style="overflow-x: auto; padding: 1rem;">' + result.svg + "</div>"
-				);
-			}).catch(function (e) {
-				$container.html(
-					'<div class="text-danger" style="padding: 2rem;">' +
-					__("Mermaid render error: {0}", [e.message || e]) +
-					"<pre style='text-align:left;font-size:12px;margin-top:10px;'>" +
-					frappe.utils.escape_html(spec) +
-					"</pre></div>"
-				);
-			});
+			window.mermaid
+				.render(id + "-svg", spec)
+				.then(function (result) {
+					$container.html(
+						'<div style="overflow-x: auto; padding: 1rem;">' + result.svg + "</div>",
+					);
+				})
+				.catch(function (e) {
+					$container.html(
+						'<div class="text-danger" style="padding: 2rem;">' +
+							__("Mermaid render error: {0}", [e.message || e]) +
+							"<pre style='text-align:left;font-size:12px;margin-top:10px;'>" +
+							frappe.utils.escape_html(spec) +
+							"</pre></div>",
+					);
+				});
 		} catch (e) {
 			$container.html(
 				'<div class="text-danger" style="padding: 2rem;">' +
-				__("Failed to render diagram: {0}", [e.message || e]) +
-				"<pre style='text-align:left;font-size:12px;margin-top:10px;'>" +
-				frappe.utils.escape_html(spec) +
-				"</pre></div>"
+					__("Failed to render diagram: {0}", [e.message || e]) +
+					"<pre style='text-align:left;font-size:12px;margin-top:10px;'>" +
+					frappe.utils.escape_html(spec) +
+					"</pre></div>",
 			);
 		}
 	});
@@ -355,8 +367,8 @@ function show_link_dialog(opts, $gridContainer) {
 	const serverLinks = Array.isArray(opts.links) ? opts.links.slice() : [];
 
 	// Pending changeset
-	const toAdd = [];       // { many_doctype, field_name, label }
-	const toDelete = [];    // { many_doctype, field_name }
+	const toAdd = []; // { many_doctype, field_name, label }
+	const toDelete = []; // { many_doctype, field_name }
 
 	const d = new frappe.ui.Dialog({
 		title: __("{0} ↔ {1}", [sourceLabel, targetLabel]),
@@ -385,10 +397,13 @@ function show_link_dialog(opts, $gridContainer) {
 		html += '<div class="text-muted small mb-2">' + __("Existing links") + "</div>";
 
 		const visibleServer = serverLinks.filter(
-			(l) => !toDelete.find((x) => x.many_doctype === l.many_doctype && x.field_name === l.field)
+			(l) =>
+				!toDelete.find(
+					(x) => x.many_doctype === l.many_doctype && x.field_name === l.field,
+				),
 		);
 		const markedForDelete = serverLinks.filter((l) =>
-			toDelete.find((x) => x.many_doctype === l.many_doctype && x.field_name === l.field)
+			toDelete.find((x) => x.many_doctype === l.many_doctype && x.field_name === l.field),
 		);
 
 		if (visibleServer.length === 0 && markedForDelete.length === 0 && toAdd.length === 0) {
@@ -401,13 +416,26 @@ function show_link_dialog(opts, $gridContainer) {
 			html +=
 				'<div class="nce-link-row d-flex align-items-center mb-1" style="padding: 6px 8px; background: #f8f9fa; border-radius: 4px;">' +
 				'<span class="flex-grow-1">' +
-				'<strong>' + esc(manyLabel) + "." + esc(l.field) + "</strong>" +
-				' <span class="text-muted">→</span> ' + esc(oneLabel) +
-				" <span class=\"text-muted small\">(" + __("many → one") + ")</span>" +
+				"<strong>" +
+				esc(manyLabel) +
+				"." +
+				esc(l.field) +
+				"</strong>" +
+				' <span class="text-muted">→</span> ' +
+				esc(oneLabel) +
+				' <span class="text-muted small">(' +
+				__("many → one") +
+				")</span>" +
 				"</span>" +
 				'<button class="btn btn-xs btn-danger nce-dlg-delete" ' +
-				'data-many="' + esc(l.many_doctype) + '" data-field="' + esc(l.field) + '"' +
-				' title="' + __("Mark for deletion") + '">✕</button>' +
+				'data-many="' +
+				esc(l.many_doctype) +
+				'" data-field="' +
+				esc(l.field) +
+				'"' +
+				' title="' +
+				__("Mark for deletion") +
+				'">✕</button>' +
 				"</div>";
 		});
 
@@ -417,12 +445,23 @@ function show_link_dialog(opts, $gridContainer) {
 			html +=
 				'<div class="nce-link-row d-flex align-items-center mb-1" style="padding: 6px 8px; background: #fff3f3; border-radius: 4px; text-decoration: line-through; opacity: 0.6;">' +
 				'<span class="flex-grow-1">' +
-				'<strong>' + esc(manyLabel) + "." + esc(l.field) + "</strong>" +
-				' <span class="text-muted">→</span> ' + esc(oneLabel) +
+				"<strong>" +
+				esc(manyLabel) +
+				"." +
+				esc(l.field) +
+				"</strong>" +
+				' <span class="text-muted">→</span> ' +
+				esc(oneLabel) +
 				"</span>" +
 				'<button class="btn btn-xs btn-default nce-dlg-undo-delete" ' +
-				'data-many="' + esc(l.many_doctype) + '" data-field="' + esc(l.field) + '"' +
-				' title="' + __("Undo delete") + '">↩</button>' +
+				'data-many="' +
+				esc(l.many_doctype) +
+				'" data-field="' +
+				esc(l.field) +
+				'"' +
+				' title="' +
+				__("Undo delete") +
+				'">↩</button>' +
 				"</div>";
 		});
 
@@ -433,12 +472,23 @@ function show_link_dialog(opts, $gridContainer) {
 			html +=
 				'<div class="nce-link-row d-flex align-items-center mb-1" style="padding: 6px 8px; background: #eafbea; border-radius: 4px;">' +
 				'<span class="flex-grow-1">' +
-				'<strong>' + esc(manyLabel) + "." + esc(a.field_name) + "</strong>" +
-				' <span class="text-muted">→</span> ' + esc(oneLabel) +
-				' <span class="text-muted small">(' + __("pending") + ")</span>" +
+				"<strong>" +
+				esc(manyLabel) +
+				"." +
+				esc(a.field_name) +
+				"</strong>" +
+				' <span class="text-muted">→</span> ' +
+				esc(oneLabel) +
+				' <span class="text-muted small">(' +
+				__("pending") +
+				")</span>" +
 				"</span>" +
-				'<button class="btn btn-xs btn-danger nce-dlg-remove-add" data-idx="' + idx + '"' +
-				' title="' + __("Remove") + '">✕</button>' +
+				'<button class="btn btn-xs btn-danger nce-dlg-remove-add" data-idx="' +
+				idx +
+				'"' +
+				' title="' +
+				__("Remove") +
+				'">✕</button>' +
 				"</div>";
 		});
 
@@ -450,7 +500,8 @@ function show_link_dialog(opts, $gridContainer) {
 		html += '<div class="text-muted small mb-2">' + __("Add new link") + "</div>";
 		html += '<div class="row">';
 		html += '<div class="col-sm-5">';
-		html += '<label class="control-label">' + __("Many side (gets the Link field)") + "</label>";
+		html +=
+			'<label class="control-label">' + __("Many side (gets the Link field)") + "</label>";
 		html += '<select class="form-control form-control-sm nce-dlg-many-select">';
 		html += '<option value="' + esc(source) + '">' + esc(sourceLabel) + "</option>";
 		html += '<option value="' + esc(target) + '">' + esc(targetLabel) + "</option>";
@@ -459,15 +510,23 @@ function show_link_dialog(opts, $gridContainer) {
 		html += '<div class="col-sm-5">';
 		html += '<label class="control-label">' + __("Field name") + "</label>";
 		html += '<div class="input-group">';
-		html += '<input type="text" class="form-control form-control-sm nce-dlg-field-input" placeholder="e.g. venue_id">';
-		html += '<span class="input-group-btn"><button class="btn btn-sm btn-primary nce-dlg-add-btn">+ ' + __("Add") + "</button></span>";
+		html +=
+			'<input type="text" class="form-control form-control-sm nce-dlg-field-input" placeholder="e.g. venue_id">';
+		html +=
+			'<span class="input-group-btn"><button class="btn btn-sm btn-primary nce-dlg-add-btn">+ ' +
+			__("Add") +
+			"</button></span>";
 		html += "</div>";
 		html += "</div>";
 		html += "</div>";
-		html += '<div class="nce-dlg-field-list-wrapper mt-2" style="max-height: 180px; overflow-y: auto; border: 1px solid #d1d8dd; border-radius: 4px; display: none;">';
+		html +=
+			'<div class="nce-dlg-field-list-wrapper mt-2" style="max-height: 180px; overflow-y: auto; border: 1px solid #d1d8dd; border-radius: 4px; display: none;">';
 		html += '<div class="nce-dlg-field-list"></div>';
 		html += "</div>";
-		html += '<div class="text-muted small mt-1 nce-dlg-field-list-hint" style="display:none;">' + __("Click a field to use its name") + "</div>";
+		html +=
+			'<div class="text-muted small mt-1 nce-dlg-field-list-hint" style="display:none;">' +
+			__("Click a field to use its name") +
+			"</div>";
 		html += "</div>";
 
 		$body.html(html);
@@ -484,7 +543,9 @@ function show_link_dialog(opts, $gridContainer) {
 		$body.find(".nce-dlg-undo-delete").on("click", function () {
 			const many = $(this).data("many");
 			const field = $(this).data("field");
-			const idx = toDelete.findIndex((x) => x.many_doctype === many && x.field_name === field);
+			const idx = toDelete.findIndex(
+				(x) => x.many_doctype === many && x.field_name === field,
+			);
 			if (idx >= 0) toDelete.splice(idx, 1);
 			render_body();
 		});
@@ -496,14 +557,24 @@ function show_link_dialog(opts, $gridContainer) {
 
 		$body.find(".nce-dlg-add-btn").on("click", function () {
 			const manyDt = $body.find(".nce-dlg-many-select").val();
-			const fieldName = $body.find(".nce-dlg-field-input").val().trim().toLowerCase().replace(/\s+/g, "_");
+			const fieldName = $body
+				.find(".nce-dlg-field-input")
+				.val()
+				.trim()
+				.toLowerCase()
+				.replace(/\s+/g, "_");
 
 			if (!fieldName) {
 				frappe.show_alert({ message: __("Enter a field name"), indicator: "orange" });
 				return;
 			}
 			if (!/^[a-z][a-z0-9_]*$/.test(fieldName)) {
-				frappe.show_alert({ message: __("Field name must start with a letter and contain only lowercase letters, numbers, underscores"), indicator: "orange" });
+				frappe.show_alert({
+					message: __(
+						"Field name must start with a letter and contain only lowercase letters, numbers, underscores",
+					),
+					indicator: "orange",
+				});
 				return;
 			}
 			if (toAdd.find((a) => a.many_doctype === manyDt && a.field_name === fieldName)) {
@@ -521,9 +592,12 @@ function show_link_dialog(opts, $gridContainer) {
 			render_body();
 		});
 
-		$body.find(".nce-dlg-many-select").on("change", function () {
-			populate_field_list();
-		}).trigger("change");
+		$body
+			.find(".nce-dlg-many-select")
+			.on("change", function () {
+				populate_field_list();
+			})
+			.trigger("change");
 	}
 
 	const fieldCache = {};
@@ -548,10 +622,30 @@ function show_link_dialog(opts, $gridContainer) {
 
 		frappe.model.with_doctype(manyDt, function () {
 			const meta = frappe.get_meta(manyDt);
-			const skipTypes = new Set(["Section Break", "Column Break", "Tab Break", "HTML", "Table", "Table MultiSelect"]);
-			const skipNames = new Set(["name", "owner", "creation", "modified", "modified_by", "docstatus", "idx", "amended_from"]);
+			const skipTypes = new Set([
+				"Section Break",
+				"Column Break",
+				"Tab Break",
+				"HTML",
+				"Table",
+				"Table MultiSelect",
+			]);
+			const skipNames = new Set([
+				"name",
+				"owner",
+				"creation",
+				"modified",
+				"modified_by",
+				"docstatus",
+				"idx",
+				"amended_from",
+			]);
 			const fields = (meta.fields || []).filter(function (f) {
-				return !skipTypes.has(f.fieldtype) && !skipNames.has(f.fieldname) && !f.fieldname.startsWith("_");
+				return (
+					!skipTypes.has(f.fieldtype) &&
+					!skipNames.has(f.fieldname) &&
+					!f.fieldname.startsWith("_")
+				);
 			});
 			fieldCache[manyDt] = fields;
 			render_field_list(fields, manyDt);
@@ -570,13 +664,28 @@ function show_link_dialog(opts, $gridContainer) {
 		}
 
 		let html = '<table class="table table-sm table-hover mb-0" style="font-size: 12px;">';
-		html += "<thead><tr><th>" + __("Field") + "</th><th>" + __("Type") + "</th><th>" + __("Label") + "</th></tr></thead><tbody>";
+		html +=
+			"<thead><tr><th>" +
+			__("Field") +
+			"</th><th>" +
+			__("Type") +
+			"</th><th>" +
+			__("Label") +
+			"</th></tr></thead><tbody>";
 		fields.forEach(function (f) {
 			const isLink = f.fieldtype === "Link";
 			const rowClass = isLink ? ' class="text-muted"' : ' style="cursor:pointer;"';
-			html += "<tr" + rowClass + ' data-fieldname="' + esc(f.fieldname) + '" data-is-link="' + (isLink ? "1" : "0") + '">';
+			html +=
+				"<tr" +
+				rowClass +
+				' data-fieldname="' +
+				esc(f.fieldname) +
+				'" data-is-link="' +
+				(isLink ? "1" : "0") +
+				'">';
 			html += "<td><code>" + esc(f.fieldname) + "</code></td>";
-			html += "<td>" + esc(f.fieldtype) + (isLink ? " → " + esc(f.options || "") : "") + "</td>";
+			html +=
+				"<td>" + esc(f.fieldtype) + (isLink ? " → " + esc(f.options || "") : "") + "</td>";
 			html += "<td>" + esc(f.label || "") + "</td>";
 			html += "</tr>";
 		});
@@ -603,8 +712,12 @@ function show_link_dialog(opts, $gridContainer) {
 		});
 
 		const affectedDoctypes = new Set();
-		toAdd.forEach(function (a) { affectedDoctypes.add(a.many_doctype); });
-		toDelete.forEach(function (x) { affectedDoctypes.add(x.many_doctype); });
+		toAdd.forEach(function (a) {
+			affectedDoctypes.add(a.many_doctype);
+		});
+		toDelete.forEach(function (x) {
+			affectedDoctypes.add(x.many_doctype);
+		});
 
 		frappe.call({
 			method: "nce_sync.api.apply_table_link_changes",

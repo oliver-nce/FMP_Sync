@@ -92,8 +92,8 @@ frappe.ui.form.on("WP Tables", {
 			(frm.doc.mirror_status === "Mirrored" || frm.doc.mirror_status === "Linked") &&
 			frm.doc.frappe_doctype;
 
-		// Mirror Schema — only when not yet mirrored (and not External mode)
-		if (!is_mirrored && frm.doc.doctype_source !== "External") {
+		// Mirror Schema — only when not yet mirrored (and not Native mode)
+		if (!is_mirrored && frm.doc.doctype_source !== "Native") {
 			frm.add_custom_button(
 				__("Mirror Schema"),
 				function () {
@@ -113,8 +113,8 @@ frappe.ui.form.on("WP Tables", {
 			);
 		}
 
-		// External mode: Link / Unlink buttons
-		if (frm.doc.doctype_source === "External") {
+		// Native mode: Link / Unlink buttons
+		if (frm.doc.doctype_source === "Native") {
 			if (!is_mirrored) {
 				frm.add_custom_button(
 					__("Link DocType"),
@@ -143,7 +143,7 @@ frappe.ui.form.on("WP Tables", {
 					function () {
 						frappe.confirm(
 							__(
-								"This will unlink the External DocType from this entry. The DocType itself will NOT be deleted. Continue?",
+								"This will unlink the Native DocType from this entry. The DocType itself will NOT be deleted. Continue?",
 							),
 							function () {
 								frappe.call({
@@ -263,7 +263,7 @@ frappe.ui.form.on("WP Tables", {
 			);
 
 			// Reconfigure — full teardown (Mirror mode only)
-			if (frm.doc.doctype_source !== "External") {
+			if (frm.doc.doctype_source !== "Native") {
 				frm.add_custom_button(
 					__("Reconfigure"),
 					function () {

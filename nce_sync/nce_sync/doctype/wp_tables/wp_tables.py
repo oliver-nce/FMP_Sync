@@ -142,17 +142,17 @@ class WPTables(Document):
 			frappe.delete_doc("Sync Log", log_name, force=True, ignore_permissions=True)
 
 		# Delete mirrored DocType (table + record) - drop table first so it always works
-		if self.frappe_doctype and self.doctype_source != "External":
+		if self.frappe_doctype and self.doctype_source != "Native":
 			_delete_mirrored_doctype(self.frappe_doctype)
 
 	def validate(self):
 		"""Validate and enforce source-of-truth hierarchy."""
-		if self.doctype_source == "External":
-			# External entries only need a valid existing DocType — no WP table required
+		if self.doctype_source == "Native":
+			# Native entries only need a valid existing DocType — no WP table required
 			if not self.frappe_doctype:
 				frappe.throw(
 					_(
-						"Frappe DocType is required for External mode. "
+						"Frappe DocType is required for Native mode. "
 						"Select the existing DocType you want to link."
 					)
 				)
@@ -234,7 +234,7 @@ class WPTables(Document):
 	@frappe.whitelist()
 	def link_external_doctype(self):
 		"""
-		Link an existing External DocType: set mirror_status to 'Linked'.
+		Link an existing Native DocType: set mirror_status to 'Linked'.
 		No WP table or column mapping is involved.
 		"""
 		if not self.frappe_doctype:
@@ -247,14 +247,14 @@ class WPTables(Document):
 		self.save()
 
 		frappe.msgprint(
-			_("External DocType '{0}' linked successfully.").format(self.frappe_doctype),
+			_("Native DocType '{0}' linked successfully.").format(self.frappe_doctype),
 			indicator="green",
 		)
 
 	@frappe.whitelist()
 	def unlink_external_doctype(self):
 		"""
-		Remove the External link. Resets mirror_status to Pending.
+		Remove the Native link. Resets mirror_status to Pending.
 		Does NOT delete the Frappe DocType — it belongs to another app.
 		"""
 		self.mirror_status = "Pending"
@@ -262,7 +262,7 @@ class WPTables(Document):
 		self.save()
 
 		frappe.msgprint(
-			_("External DocType unlinked. This entry is now in Pending state."),
+			_("Native DocType unlinked. This entry is now in Pending state."),
 			indicator="orange",
 		)
 

@@ -14,7 +14,7 @@ class SyncManager(Document):
 
 		tables = frappe.get_all(
 			"WP Tables",
-			filters={"auto_sync_active": 1, "mirror_status": "Mirrored"},
+			filters={"auto_sync_active": 1, "mirror_status": ["in", ["Mirrored", "Linked"]]},
 			pluck="name",
 		)
 
@@ -43,7 +43,7 @@ class SyncManager(Document):
 		# Get all mirrored WP Tables
 		wp_tables = frappe.get_all(
 			"WP Tables",
-			filters={"mirror_status": "Mirrored"},
+			filters={"mirror_status": ["in", ["Mirrored", "Linked"]]},
 			fields=["name", "table_name", "frappe_doctype"],
 		)
 

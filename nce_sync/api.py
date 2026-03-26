@@ -69,7 +69,7 @@ def get_table_links_grid_data():
 	"""
 	tables = frappe.get_all(
 		"WP Tables",
-		filters={"mirror_status": "Mirrored", "frappe_doctype": ["!=", ""]},
+		filters={"mirror_status": ["in", ["Mirrored", "Linked"]], "frappe_doctype": ["!=", ""]},
 		fields=["frappe_doctype", "nce_name", "table_name"],
 		order_by="frappe_doctype",
 	)
@@ -107,22 +107,26 @@ def get_table_links_grid_data():
 				links[source] = {}
 			if target not in links[source]:
 				links[source][target] = []
-			links[source][target].append({
-				"field": df.fieldname,
-				"label": df.label or df.fieldname,
-				"many_doctype": source,
-			})
+			links[source][target].append(
+				{
+					"field": df.fieldname,
+					"label": df.label or df.fieldname,
+					"many_doctype": source,
+				}
+			)
 
 			# Also record in the reverse direction so the grid cell works both ways
 			if target not in links:
 				links[target] = {}
 			if source not in links[target]:
 				links[target][source] = []
-			links[target][source].append({
-				"field": df.fieldname,
-				"label": df.label or df.fieldname,
-				"many_doctype": source,
-			})
+			links[target][source].append(
+				{
+					"field": df.fieldname,
+					"label": df.label or df.fieldname,
+					"many_doctype": source,
+				}
+			)
 
 	return {"tables": doctypes, "links": links}
 
@@ -192,12 +196,15 @@ def apply_table_link_changes(to_add, to_delete):
 					dt, fname, existing.fieldtype, one_dt
 				)
 			else:
-				doc.append("fields", {
-					"fieldname": fname,
-					"fieldtype": "Link",
-					"label": fname.replace("_", " ").title(),
-					"options": one_dt,
-				})
+				doc.append(
+					"fields",
+					{
+						"fieldname": fname,
+						"fieldtype": "Link",
+						"label": fname.replace("_", " ").title(),
+						"options": one_dt,
+					},
+				)
 				action = _("Added {0}.{1} → {2}").format(dt, fname, one_dt)
 			doc.save(ignore_permissions=True)
 			frappe.db.commit()
@@ -236,10 +243,16 @@ def _build_excel_file(doctype, user):
 	from openpyxl.utils import get_column_letter
 
 	meta = frappe.get_meta(doctype)
-	skip_types = frozenset({
-		"Section Break", "Column Break", "Tab Break",
-		"HTML", "Fold", "Heading",
-	})
+	skip_types = frozenset(
+		{
+			"Section Break",
+			"Column Break",
+			"Tab Break",
+			"HTML",
+			"Fold",
+			"Heading",
+		}
+	)
 	fields = [df for df in meta.fields if df.fieldtype not in skip_types]
 	fieldnames = ["name"] + [df.fieldname for df in fields]
 	labels = ["ID"] + [df.label or df.fieldname for df in fields]
@@ -270,12 +283,14 @@ def _build_excel_file(doctype, user):
 	buf.seek(0)
 
 	fname = f"{doctype.replace(' ', '_')}.xlsx"
-	file_doc = frappe.get_doc({
-		"doctype": "File",
-		"file_name": fname,
-		"content": buf.getvalue(),
-		"is_private": 1,
-	})
+	file_doc = frappe.get_doc(
+		{
+			"doctype": "File",
+			"file_name": fname,
+			"content": buf.getvalue(),
+			"is_private": 1,
+		}
+	)
 	file_doc.save(ignore_permissions=True)
 	frappe.db.commit()
 

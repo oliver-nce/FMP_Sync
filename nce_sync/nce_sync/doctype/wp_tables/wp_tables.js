@@ -44,7 +44,12 @@ function _scrub_fieldname(label) {
 
 frappe.ui.form.on("WP Tables", {
 	after_save: function (frm) {
-		let desired = (frm.doc.nce_name || frm.doc.table_name || "").trim();
+		let desired = (
+			frm.doc.nce_name ||
+			frm.doc.table_name ||
+			frm.doc.frappe_doctype ||
+			""
+		).trim();
 		if (desired && frm.doc.name !== desired) {
 			frappe
 				.xcall("frappe.client.rename_doc", {
@@ -108,22 +113,24 @@ frappe.ui.form.on("WP Tables", {
 			);
 		}
 
-		// External mode: Link & Configure / Relink / Unlink buttons
+		// External mode: Link / Unlink buttons
 		if (frm.doc.doctype_source === "External") {
 			if (!is_mirrored) {
 				frm.add_custom_button(
-					__("Link & Configure"),
+					__("Link DocType"),
 					function () {
+						if (!frm.doc.frappe_doctype) {
+							frappe.msgprint(__("Please select a Frappe DocType first."));
+							return;
+						}
 						frm.save().then(function () {
 							frappe.call({
-								method: "preview_external_schema",
+								method: "link_external_doctype",
 								doc: frm.doc,
 								freeze: true,
-								freeze_message: __("Reading schema..."),
-								callback: function (r) {
-									if (r.message) {
-										show_external_link_dialog(frm, r.message);
-									}
+								freeze_message: __("Linking..."),
+								callback: function () {
+									frm.reload_doc();
 								},
 							});
 						});
@@ -131,24 +138,6 @@ frappe.ui.form.on("WP Tables", {
 					__("Actions"),
 				);
 			} else {
-				frm.add_custom_button(
-					__("Relink"),
-					function () {
-						frappe.call({
-							method: "preview_external_schema",
-							doc: frm.doc,
-							freeze: true,
-							freeze_message: __("Reading schema..."),
-							callback: function (r) {
-								if (r.message) {
-									show_external_link_dialog(frm, r.message);
-								}
-							},
-						});
-					},
-					__("Actions"),
-				);
-
 				frm.add_custom_button(
 					__("Unlink"),
 					function () {
@@ -758,157 +747,6 @@ function show_preview_dialog(frm, preview_data, mode, new_table_name) {
 	});
 
 	d.show();
-}
-
-function show_external_link_dialog(frm, preview_data) {
-	let wp_fields = preview_data.fields;
-	let frappe_fields = preview_data.frappe_fields;
-	let doctype_name = preview_data.doctype_name;
-
-	let frappe_field_options = frappe_fields.map((f) => f.fieldname);
-
-	let prev_mapping = {};
-	try {
-		prev_mapping = JSON.parse(frm.doc.column_mapping || "{}");
-	} catch (e) {}
-	let prev_name_col = frm.doc.name_field_column || null;
-	let prev_matching = (frm.doc.matching_fields || "")
-		.split(",")
-		.map((s) => s.trim())
-		.filter(Boolean);
-	let prev_mod_ts = frm.doc.modified_timestamp_field || null;
-	let prev_crt_ts = frm.doc.created_timestamp_field || null;
-
-	let rows_html = "";
-	wp_fields.forEach(function (col) {
-		let col_name = col.column_name || col.name;
-		let suggested = "";
-		if (prev_mapping[col_name] && prev_mapping[col_name].fieldname) {
-			suggested = prev_mapping[col_name].fieldname;
-		} else if (frappe_field_options.includes(col_name)) {
-			suggested = col_name;
-		} else {
-			let scrubbed = _scrub_fieldname(col_name);
-			suggested = frappe_field_options.includes(scrubbed) ? scrubbed : "";
-		}
-
-		let options_html = `<option value="">(skip)</option>`;
-		frappe_field_options.forEach(function (fn) {
-			let sel = fn === suggested ? " selected" : "";
-			options_html += `<option value="${fn}"${sel}>${fn}</option>`;
-		});
-
-		let name_checked = col_name === prev_name_col ? " checked" : "";
-		let match_checked = prev_matching.includes(col_name) ? " checked" : "";
-		let mod_checked = col_name === prev_mod_ts ? " checked" : "";
-		let crt_checked = col_name === prev_crt_ts ? " checked" : "";
-
-		rows_html += `
-		<tr>
-			<td style="padding:4px 8px;font-family:monospace;white-space:nowrap">${col_name}</td>
-			<td style="padding:4px 8px">
-				<select class="ext-field-select form-control form-control-sm" data-col="${col_name}" style="min-width:160px">
-					${options_html}
-				</select>
-			</td>
-			<td style="padding:4px 8px;text-align:center">
-				<input type="radio" name="ext_name_col" class="ext-name-radio" value="${col_name}" ${name_checked}>
-			</td>
-			<td style="padding:4px 8px;text-align:center">
-				<input type="checkbox" class="ext-match-cb" data-col="${col_name}" ${match_checked}>
-			</td>
-			<td style="padding:4px 8px;text-align:center">
-				<input type="radio" name="ext_mod_ts" class="ext-mod-ts-radio" value="${col_name}" ${mod_checked}>
-			</td>
-			<td style="padding:4px 8px;text-align:center">
-				<input type="radio" name="ext_crt_ts" class="ext-crt-ts-radio" value="${col_name}" ${crt_checked}>
-			</td>
-		</tr>`;
-	});
-
-	let html = `
-	<div style="overflow-x:auto">
-		<p class="text-muted small">Map each WordPress column to an existing field on <strong>${doctype_name}</strong>. Unmapped columns (skip) will not be synced.</p>
-		<table class="table table-bordered table-sm" style="font-size:13px">
-			<thead>
-				<tr>
-					<th>WP Column</th>
-					<th>&rarr; Frappe Field</th>
-					<th title="Use this column as the Frappe record name">Use as Name</th>
-					<th title="Use for matching records during sync">Match</th>
-					<th title="Modified timestamp - drives TS Compare sync">Mod TS</th>
-					<th title="Created timestamp (optional)">Crt TS</th>
-				</tr>
-			</thead>
-			<tbody>
-				${rows_html}
-			</tbody>
-		</table>
-	</div>`;
-
-	let d = new frappe.ui.Dialog({
-		title: __("Link & Configure \u2014 {0}", [doctype_name]),
-		size: "extra-large",
-		fields: [{ fieldtype: "HTML", fieldname: "ext_map_html" }],
-		primary_action_label: __("Confirm & Link"),
-		primary_action: function () {
-			let column_mapping = {};
-			d.$wrapper.find(".ext-field-select").each(function () {
-				let col = $(this).data("col");
-				let fn = $(this).val();
-				if (fn) {
-					column_mapping[col] = { fieldname: fn };
-				}
-			});
-
-			let name_field_column = d.$wrapper.find(".ext-name-radio:checked").val() || "";
-
-			let matching_fields = [];
-			d.$wrapper.find(".ext-match-cb:checked").each(function () {
-				matching_fields.push($(this).data("col"));
-			});
-
-			let modified_ts_field = d.$wrapper.find(".ext-mod-ts-radio:checked").val() || "";
-			let created_ts_field = d.$wrapper.find(".ext-crt-ts-radio:checked").val() || "";
-
-			if (!name_field_column && matching_fields.length === 0) {
-				frappe.msgprint(
-					__("Please select either 'Use as Name' or at least one matching field."),
-				);
-				return;
-			}
-			if (!modified_ts_field) {
-				frappe.msgprint(__("Please select a Modified Timestamp field (Mod TS column)."));
-				return;
-			}
-
-			d.get_primary_btn().prop("disabled", true).text(__("Linking\u2026"));
-
-			frappe.call({
-				method: "link_external_doctype",
-				doc: frm.doc,
-				args: {
-					column_mapping: JSON.stringify(column_mapping),
-					matching_fields: matching_fields.join(","),
-					name_field_column: name_field_column || undefined,
-					modified_ts_field: modified_ts_field || undefined,
-					created_ts_field: created_ts_field || undefined,
-				},
-				freeze: true,
-				freeze_message: __("Saving link configuration..."),
-				callback: function () {
-					d.hide();
-					frm.reload_doc();
-				},
-				error: function () {
-					d.get_primary_btn().prop("disabled", false).text(__("Confirm & Link"));
-				},
-			});
-		},
-	});
-
-	d.show();
-	d.fields_dict.ext_map_html.$wrapper.html(html);
 }
 
 function show_sync_progress_dialog(frm) {

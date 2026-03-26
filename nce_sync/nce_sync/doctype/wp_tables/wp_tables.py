@@ -148,19 +148,17 @@ class WPTables(Document):
 	def validate(self):
 		"""Validate and enforce source-of-truth hierarchy."""
 		if self.doctype_source == "External":
-			# External entries must have both a source table and a target DocType
-			if not self.table_name:
-				frappe.throw(_("Table Name is required."))
+			# External entries only need a valid existing DocType — no WP table required
 			if not self.frappe_doctype:
 				frappe.throw(
 					_(
 						"Frappe DocType is required for External mode. "
-						"Enter the name of the existing DocType you want to sync into."
+						"Select the existing DocType you want to link."
 					)
 				)
 			if not frappe.db.exists("DocType", self.frappe_doctype):
 				frappe.throw(
-					_("DocType '{0}' does not exist. Please enter a valid existing DocType name.").format(
+					_("DocType '{0}' does not exist. Please select a valid existing DocType.").format(
 						self.frappe_doctype
 					)
 				)
@@ -234,72 +232,22 @@ class WPTables(Document):
 			self.table_name = original_table_name
 
 	@frappe.whitelist()
-	def preview_external_schema(self):
+	def link_external_doctype(self):
 		"""
-		For External mode: introspect the WP table schema AND return the
-		target Frappe DocType's existing fields so the user can map columns.
-		"""
-		from nce_sync.utils.schema_mirror import preview_table_schema
-
-		if not self.frappe_doctype:
-			frappe.throw(_("Set a Frappe DocType name before configuring the link."))
-		if not frappe.db.exists("DocType", self.frappe_doctype):
-			frappe.throw(_("DocType '{0}' does not exist.").format(self.frappe_doctype))
-
-		wp_conn = frappe.get_single("WordPress Connection")
-		if not wp_conn:
-			frappe.throw(_("WordPress Connection not configured"))
-
-		# Get WP column info (reuse existing preview logic)
-		wp_preview = preview_table_schema(wp_conn, self)
-
-		# Get the existing Frappe DocType's fields
-		meta = frappe.get_meta(self.frappe_doctype)
-		frappe_fields = [
-			{"fieldname": df.fieldname, "label": df.label or df.fieldname, "fieldtype": df.fieldtype}
-			for df in meta.fields
-			if df.fieldtype not in ("Section Break", "Column Break", "Tab Break", "HTML", "Fold", "Heading")
-			and not df.hidden
-		]
-
-		wp_preview["frappe_fields"] = frappe_fields
-		wp_preview["doctype_name"] = self.frappe_doctype
-		return wp_preview
-
-	@frappe.whitelist()
-	def link_external_doctype(
-		self,
-		column_mapping=None,
-		matching_fields=None,
-		name_field_column=None,
-		modified_ts_field=None,
-		created_ts_field=None,
-		auto_generated_columns=None,
-	):
-		"""
-		Complete the External DocType link: save column mapping and
-		set mirror_status to 'Linked' so the sync pipeline picks it up.
+		Link an existing External DocType: set mirror_status to 'Linked'.
+		No WP table or column mapping is involved.
 		"""
 		if not self.frappe_doctype:
 			frappe.throw(_("Frappe DocType is required."))
 		if not frappe.db.exists("DocType", self.frappe_doctype):
 			frappe.throw(_("DocType '{0}' does not exist.").format(self.frappe_doctype))
 
-		if column_mapping and isinstance(column_mapping, str):
-			column_mapping = json.loads(column_mapping)
-
-		self.column_mapping = json.dumps(column_mapping) if column_mapping else self.column_mapping
-		self.matching_fields = matching_fields or self.matching_fields
-		self.name_field_column = name_field_column or self.name_field_column
-		self.modified_timestamp_field = modified_ts_field or self.modified_timestamp_field
-		self.created_timestamp_field = created_ts_field or self.created_timestamp_field
-		self.auto_generated_columns = auto_generated_columns or self.auto_generated_columns
 		self.mirror_status = "Linked"
 		self.error_log = None
 		self.save()
 
 		frappe.msgprint(
-			_("External DocType '{0}' linked successfully. Sync is now active.").format(self.frappe_doctype),
+			_("External DocType '{0}' linked successfully.").format(self.frappe_doctype),
 			indicator="green",
 		)
 
@@ -309,19 +257,12 @@ class WPTables(Document):
 		Remove the External link. Resets mirror_status to Pending.
 		Does NOT delete the Frappe DocType — it belongs to another app.
 		"""
-		self.frappe_doctype = None
-		self.column_mapping = None
-		self.matching_fields = None
-		self.name_field_column = None
-		self.modified_timestamp_field = None
-		self.created_timestamp_field = None
-		self.auto_generated_columns = None
 		self.mirror_status = "Pending"
 		self.error_log = None
 		self.save()
 
 		frappe.msgprint(
-			_("External DocType unlinked. This WP Tables entry is now in Pending state."),
+			_("External DocType unlinked. This entry is now in Pending state."),
 			indicator="orange",
 		)
 

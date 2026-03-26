@@ -6,11 +6,12 @@
   "engine": "InnoDB",
   "field_order": [
     "table_info_section",
+    "doctype_source",
     "table_name",
     "table_type",
-    "doctype_source",
     "nce_name",
     "column_break_1",
+    "frappe_doctype",
     "modified_timestamp_field",
     "created_timestamp_field",
     "matching_fields",
@@ -26,7 +27,6 @@
     "last_sync_status",
     "last_sync_log",
     "generated_doctype_section",
-    "frappe_doctype",
     "mirror_status",
     "column_mapping",
     "name_field_column",
@@ -42,13 +42,24 @@
       "label": "Table Information"
     },
     {
+      "fieldname": "doctype_source",
+      "fieldtype": "Select",
+      "label": "DocType Source",
+      "options": "Mirror\nExternal",
+      "default": "Mirror",
+      "in_list_view": 1,
+      "reqd": 1,
+      "description": "Mirror: NCE Sync creates and owns the Frappe DocType from a WP table. External: link to a DocType already created by another app (no WP table needed)."
+    },
+    {
       "fieldname": "table_name",
       "fieldtype": "Data",
       "in_list_view": 1,
       "label": "Table Name",
-      "reqd": 1,
       "unique": 1,
-      "read_only": 1
+      "read_only": 1,
+      "mandatory_depends_on": "eval:doc.doctype_source !== 'External'",
+      "depends_on": "eval:doc.doctype_source !== 'External'"
     },
     {
       "fieldname": "table_type",
@@ -56,49 +67,55 @@
       "in_list_view": 1,
       "label": "Table Type",
       "options": "Table\nView",
-      "reqd": 1
-    },
-    {
-      "fieldname": "doctype_source",
-      "fieldtype": "Select",
-      "label": "DocType Source",
-      "options": "Mirror\nExternal",
-      "default": "Mirror",
-      "in_list_view": 0,
-      "description": "Mirror: NCE Sync creates and owns the Frappe DocType. External: link to a DocType already created by another app."
+      "mandatory_depends_on": "eval:doc.doctype_source !== 'External'",
+      "depends_on": "eval:doc.doctype_source !== 'External'"
     },
     {
       "fieldname": "nce_name",
       "fieldtype": "Data",
       "label": "NCE Name",
-      "description": "Optional custom name for the generated Frappe DocType. If blank, uses table_name."
+      "description": "Optional custom name for the generated Frappe DocType. If blank, uses table_name.",
+      "depends_on": "eval:doc.doctype_source !== 'External'"
     },
     {
       "fieldname": "column_break_1",
       "fieldtype": "Column Break"
     },
     {
+      "fieldname": "frappe_doctype",
+      "fieldtype": "Link",
+      "label": "Frappe DocType",
+      "options": "DocType",
+      "read_only_depends_on": "eval:doc.doctype_source !== 'External'",
+      "mandatory_depends_on": "eval:doc.doctype_source === 'External'",
+      "description": "Mirror mode: auto-filled when schema is mirrored. External mode: select the existing DocType to sync into."
+    },
+    {
       "fieldname": "modified_timestamp_field",
       "fieldtype": "Data",
       "label": "Modified Timestamp Field",
-      "description": "Auto-detected or manually entered"
+      "description": "Auto-detected or manually entered",
+      "depends_on": "eval:doc.doctype_source !== 'External'"
     },
     {
       "fieldname": "created_timestamp_field",
       "fieldtype": "Data",
       "label": "Created Timestamp Field",
-      "description": "Auto-detected or manually entered"
+      "description": "Auto-detected or manually entered",
+      "depends_on": "eval:doc.doctype_source !== 'External'"
     },
     {
       "fieldname": "matching_fields",
       "fieldtype": "Small Text",
       "label": "Matching Fields",
-      "description": "Comma-separated list of up to 3 fields to use for matching records during sync (selected during Mirror Schema)"
+      "description": "Comma-separated list of up to 3 fields to use for matching records during sync (selected during Mirror Schema)",
+      "depends_on": "eval:doc.doctype_source !== 'External'"
     },
     {
       "fieldname": "sync_settings_section",
       "fieldtype": "Section Break",
-      "label": "Sync Settings"
+      "label": "Sync Settings",
+      "depends_on": "eval:doc.doctype_source !== 'External'"
     },
     {
       "fieldname": "sync_direction",
@@ -148,7 +165,8 @@
       "fieldname": "sync_status_section",
       "fieldtype": "Section Break",
       "label": "Sync Status",
-      "collapsible": 1
+      "collapsible": 1,
+      "depends_on": "eval:doc.doctype_source !== 'External'"
     },
     {
       "fieldname": "last_synced",
@@ -175,13 +193,8 @@
       "fieldname": "generated_doctype_section",
       "fieldtype": "Section Break",
       "label": "Generated DocType",
-      "collapsible": 1
-    },
-    {
-      "fieldname": "frappe_doctype",
-      "fieldtype": "Data",
-      "label": "Frappe DocType Name",
-      "read_only_depends_on": "eval:doc.doctype_source !== 'External'"
+      "collapsible": 1,
+      "depends_on": "eval:doc.doctype_source !== 'External'"
     },
     {
       "fieldname": "column_mapping",
@@ -228,7 +241,7 @@
       "fieldtype": "HTML",
       "label": "External Config Description",
       "depends_on": "eval:doc.doctype_source=='External'",
-      "options": "<p class='text-muted'>This table will sync into an existing Frappe DocType. Use <strong>Link & Configure</strong> (in the Actions menu) to map WordPress columns to the DocType's existing fields.</p>"
+      "options": "<p class='text-muted'>This entry links to an existing Frappe DocType created by another app. No WordPress table is involved. Select the target DocType above, then use <strong>Link & Configure</strong> in the Actions menu to complete the setup.</p>"
     },
     {
       "fieldname": "error_log",
@@ -239,7 +252,7 @@
   ],
   "index_web_pages_for_search": 1,
   "links": [],
-  "modified": "2026-02-06 00:00:00.000000",
+  "modified": "2026-03-12 00:00:00.000000",
   "modified_by": "Administrator",
   "module": "NCE Sync",
   "name": "WP Tables",

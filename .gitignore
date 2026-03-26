@@ -65,3 +65,8 @@ PLAN_APP_FINALIZATION.md
 QUICKSTART.md
 V15_COMPATIBILITY_FIX.md
 WORKSPACE_CLEANUP_FIX.md
+
+# Cursor AI rules (symlinked from shared config)
+.cursor/
+Frappe Context
+.rules

@@ -35,8 +35,6 @@
   "custom_headers",
   "column_break_settings1",
   "notes",
-  "credential_config_section",
-  "credential_config",
   "guide_tab",
   "guide_section",
   "implementation_guide",
@@ -214,18 +212,6 @@
    "label": "Notes"
   },
   {
-   "fieldname": "credential_config_section",
-   "fieldtype": "Section Break",
-   "label": "Credential Config"
-  },
-  {
-   "fieldname": "credential_config",
-   "fieldtype": "Code",
-   "label": "Credential Config",
-   "options": "JSON",
-   "description": "AI-generated JSON — describes which credential fields this connector uses and how they map to the API."
-  },
-  {
    "fieldname": "guide_tab",
    "fieldtype": "Tab Break",
    "label": "Implementation Guide"
@@ -275,7 +261,7 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-03-11 00:00:00.000000",
+ "modified": "2026-03-03 00:00:00.000000",
  "modified_by": "Administrator",
  "module": "NCE Sync",
  "name": "API Connector",

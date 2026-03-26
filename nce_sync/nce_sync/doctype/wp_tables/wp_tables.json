@@ -8,6 +8,7 @@
     "table_info_section",
     "table_name",
     "table_type",
+    "doctype_source",
     "nce_name",
     "column_break_1",
     "modified_timestamp_field",
@@ -30,6 +31,8 @@
     "column_mapping",
     "name_field_column",
     "auto_generated_columns",
+    "external_config_section",
+    "external_config_description",
     "error_log"
   ],
   "fields": [
@@ -54,6 +57,15 @@
       "label": "Table Type",
       "options": "Table\nView",
       "reqd": 1
+    },
+    {
+      "fieldname": "doctype_source",
+      "fieldtype": "Select",
+      "label": "DocType Source",
+      "options": "Mirror\nExternal",
+      "default": "Mirror",
+      "in_list_view": 0,
+      "description": "Mirror: NCE Sync creates and owns the Frappe DocType. External: link to a DocType already created by another app."
     },
     {
       "fieldname": "nce_name",
@@ -169,7 +181,7 @@
       "fieldname": "frappe_doctype",
       "fieldtype": "Data",
       "label": "Frappe DocType Name",
-      "read_only": 1
+      "read_only_depends_on": "eval:doc.doctype_source !== 'External'"
     },
     {
       "fieldname": "column_mapping",
@@ -200,9 +212,23 @@
       "fieldtype": "Select",
       "in_list_view": 1,
       "label": "Mirror Status",
-      "options": "Pending\nMirrored\nError",
+      "options": "Pending\nMirrored\nLinked\nError",
       "default": "Pending",
       "read_only": 1
+    },
+    {
+      "fieldname": "external_config_section",
+      "fieldtype": "Section Break",
+      "label": "External DocType Configuration",
+      "depends_on": "eval:doc.doctype_source=='External'",
+      "collapsible": 0
+    },
+    {
+      "fieldname": "external_config_description",
+      "fieldtype": "HTML",
+      "label": "External Config Description",
+      "depends_on": "eval:doc.doctype_source=='External'",
+      "options": "<p class='text-muted'>This table will sync into an existing Frappe DocType. Use <strong>Link & Configure</strong> (in the Actions menu) to map WordPress columns to the DocType's existing fields.</p>"
     },
     {
       "fieldname": "error_log",

@@ -22,32 +22,46 @@ const FRAPPE_FIELD_TYPES = [
 ];
 
 const RESERVED_FIELDNAMES = [
-	"name", "parent", "creation", "owner", "modified",
-	"modified_by", "parentfield", "parenttype", "file_list",
-	"flags", "docstatus",
+	"name",
+	"parent",
+	"creation",
+	"owner",
+	"modified",
+	"modified_by",
+	"parentfield",
+	"parenttype",
+	"file_list",
+	"flags",
+	"docstatus",
 ];
 
 function _scrub_fieldname(label) {
-	return (label || "").toLowerCase().replace(/\s+/g, "_").replace(/[^a-z0-9_]/g, "");
+	return (label || "")
+		.toLowerCase()
+		.replace(/\s+/g, "_")
+		.replace(/[^a-z0-9_]/g, "");
 }
 
 frappe.ui.form.on("WP Tables", {
 	after_save: function (frm) {
 		let desired = (frm.doc.nce_name || frm.doc.table_name || "").trim();
 		if (desired && frm.doc.name !== desired) {
-			frappe.xcall("frappe.client.rename_doc", {
-				doctype: "WP Tables",
-				old_name: frm.doc.name,
-				new_name: desired,
-			}).then(() => {
-				frappe.set_route("Form", "WP Tables", desired);
-			}).catch((e) => {
-				frappe.msgprint({
-					title: __("Rename Failed"),
-					message: e.message || __("Could not rename to {0}", [desired]),
-					indicator: "red",
+			frappe
+				.xcall("frappe.client.rename_doc", {
+					doctype: "WP Tables",
+					old_name: frm.doc.name,
+					new_name: desired,
+				})
+				.then(() => {
+					frappe.set_route("Form", "WP Tables", desired);
+				})
+				.catch((e) => {
+					frappe.msgprint({
+						title: __("Rename Failed"),
+						message: e.message || __("Could not rename to {0}", [desired]),
+						indicator: "red",
+					});
 				});
-			});
 		}
 	},
 
@@ -65,12 +79,16 @@ frappe.ui.form.on("WP Tables", {
 			frm.page.set_indicator(__("Synced"), "green");
 		} else if (frm.doc.mirror_status === "Mirrored") {
 			frm.page.set_indicator(__("Mirrored"), "blue");
+		} else if (frm.doc.mirror_status === "Linked") {
+			frm.page.set_indicator(__("Linked"), "purple");
 		}
 
-		let is_mirrored = frm.doc.mirror_status === "Mirrored" && frm.doc.frappe_doctype;
+		let is_mirrored =
+			(frm.doc.mirror_status === "Mirrored" || frm.doc.mirror_status === "Linked") &&
+			frm.doc.frappe_doctype;
 
-		// Mirror Schema — only when not yet mirrored
-		if (!is_mirrored) {
+		// Mirror Schema — only when not yet mirrored (and not External mode)
+		if (!is_mirrored && frm.doc.doctype_source !== "External") {
 			frm.add_custom_button(
 				__("Mirror Schema"),
 				function () {
@@ -86,8 +104,74 @@ frappe.ui.form.on("WP Tables", {
 						},
 					});
 				},
-				__("Actions")
+				__("Actions"),
 			);
+		}
+
+		// External mode: Link & Configure / Relink / Unlink buttons
+		if (frm.doc.doctype_source === "External") {
+			if (!is_mirrored) {
+				frm.add_custom_button(
+					__("Link & Configure"),
+					function () {
+						frm.save().then(function () {
+							frappe.call({
+								method: "preview_external_schema",
+								doc: frm.doc,
+								freeze: true,
+								freeze_message: __("Reading schema..."),
+								callback: function (r) {
+									if (r.message) {
+										show_external_link_dialog(frm, r.message);
+									}
+								},
+							});
+						});
+					},
+					__("Actions"),
+				);
+			} else {
+				frm.add_custom_button(
+					__("Relink"),
+					function () {
+						frappe.call({
+							method: "preview_external_schema",
+							doc: frm.doc,
+							freeze: true,
+							freeze_message: __("Reading schema..."),
+							callback: function (r) {
+								if (r.message) {
+									show_external_link_dialog(frm, r.message);
+								}
+							},
+						});
+					},
+					__("Actions"),
+				);
+
+				frm.add_custom_button(
+					__("Unlink"),
+					function () {
+						frappe.confirm(
+							__(
+								"This will unlink the External DocType from this entry. The DocType itself will NOT be deleted. Continue?",
+							),
+							function () {
+								frappe.call({
+									method: "unlink_external_doctype",
+									doc: frm.doc,
+									freeze: true,
+									freeze_message: __("Unlinking..."),
+									callback: function () {
+										frm.reload_doc();
+									},
+								});
+							},
+						);
+					},
+					__("Actions"),
+				);
+			}
 		}
 
 		if (is_mirrored) {
@@ -106,7 +190,7 @@ frappe.ui.form.on("WP Tables", {
 						},
 					});
 				},
-				__("Actions")
+				__("Actions"),
 			);
 
 			// Truncate Data — clears all records, keeps DocType structure
@@ -116,7 +200,7 @@ frappe.ui.form.on("WP Tables", {
 					frappe.confirm(
 						__(
 							"This will delete ALL records from '{0}' in Frappe. The DocType structure will remain. Continue?",
-							[frm.doc.frappe_doctype]
+							[frm.doc.frappe_doctype],
 						),
 						function () {
 							frappe.call({
@@ -132,10 +216,10 @@ frappe.ui.form.on("WP Tables", {
 									});
 								},
 							});
-						}
+						},
 					);
 				},
-				__("Actions")
+				__("Actions"),
 			);
 
 			// Remap — re-read source schema, add new columns, rebuild mapping, truncate + repopulate
@@ -150,7 +234,7 @@ frappe.ui.form.on("WP Tables", {
 								fieldname: "info",
 								options: `<p class="text-muted">${__(
 									"This will truncate all data in '{0}', re-read the source schema (adding any new columns), and rebuild the column mapping. The DocType and its table are preserved.",
-									[frm.doc.frappe_doctype]
+									[frm.doc.frappe_doctype],
 								)}</p>`,
 							},
 							{
@@ -158,15 +242,17 @@ frappe.ui.form.on("WP Tables", {
 								fieldname: "new_table_name",
 								label: __("Source Table Name"),
 								default: frm.doc.table_name,
-								description: __("Change this if the WordPress table has been renamed."),
+								description: __(
+									"Change this if the WordPress table has been renamed.",
+								),
 							},
 						],
 						primary_action_label: __("Continue"),
 						primary_action: function (values) {
 							d.hide();
 							let new_name = (values.new_table_name || "").trim();
-							let table_name_override = (new_name && new_name !== frm.doc.table_name)
-								? new_name : undefined;
+							let table_name_override =
+								new_name && new_name !== frm.doc.table_name ? new_name : undefined;
 
 							frappe.call({
 								method: "preview_schema",
@@ -184,43 +270,45 @@ frappe.ui.form.on("WP Tables", {
 					});
 					d.show();
 				},
-				__("Actions")
+				__("Actions"),
 			);
 
-			// Reconfigure — full teardown: DocType + deps + SQL table + workspace link → Pending
-			frm.add_custom_button(
-				__("Reconfigure"),
-				function () {
-					frappe.confirm(
-						__(
-							"This will delete the DocType '{0}', its data, and remove it from the workspace. You can then Mirror Schema again with different settings. Continue?",
-							[frm.doc.frappe_doctype]
-						),
-						function () {
-							frappe.call({
-								method: "delete_mirror",
-								doc: frm.doc,
-								freeze: true,
-								freeze_message: __("Reconfiguring..."),
-								callback: function () {
-									frappe.ui.toolbar.clear_cache();
-									frm.reload_doc();
-								},
-							});
-						}
-					);
-				},
-				__("Actions")
-			);
+			// Reconfigure — full teardown (Mirror mode only)
+			if (frm.doc.doctype_source !== "External") {
+				frm.add_custom_button(
+					__("Reconfigure"),
+					function () {
+						frappe.confirm(
+							__(
+								"This will delete the DocType '{0}', its data, and remove it from the workspace. You can then Mirror Schema again with different settings. Continue?",
+								[frm.doc.frappe_doctype],
+							),
+							function () {
+								frappe.call({
+									method: "delete_mirror",
+									doc: frm.doc,
+									freeze: true,
+									freeze_message: __("Reconfiguring..."),
+									callback: function () {
+										frappe.ui.toolbar.clear_cache();
+										frm.reload_doc();
+									},
+								});
+							},
+						);
+					},
+					__("Actions"),
+				);
+			}
 
 			// "Add to Workspace" shown outside Actions menu when shortcut is missing
-			frappe.xcall("nce_sync.utils.workspace_utils.is_in_workspace", {
-				doctype_name: frm.doc.frappe_doctype,
-			}).then((in_ws) => {
-				if (!in_ws) {
-					let btn = frm.add_custom_button(
-						__("Add to Workspace"),
-						function () {
+			frappe
+				.xcall("nce_sync.utils.workspace_utils.is_in_workspace", {
+					doctype_name: frm.doc.frappe_doctype,
+				})
+				.then((in_ws) => {
+					if (!in_ws) {
+						let btn = frm.add_custom_button(__("Add to Workspace"), function () {
 							frappe.call({
 								method: "add_to_workspace",
 								doc: frm.doc,
@@ -229,11 +317,14 @@ frappe.ui.form.on("WP Tables", {
 									frm.reload_doc();
 								},
 							});
-						}
-					);
-					btn.css({ "background-color": "pink", "color": "red", "font-weight": "bold" });
-				}
-			});
+						});
+						btn.css({
+							"background-color": "pink",
+							color: "red",
+							"font-weight": "bold",
+						});
+					}
+				});
 		}
 	},
 });
@@ -245,12 +336,11 @@ function show_preview_dialog(frm, preview_data, mode, new_table_name) {
 	let previous_matching = preview_data.previous_matching_fields || [];
 	let previous_name_column = preview_data.previous_name_field_column || null;
 
-	let dialog_title = mode === "remap"
-		? __("Remap Schema — {0}", [doctype_name])
-		: __("Review Field Types — {0}", [doctype_name]);
-	let action_label = mode === "remap"
-		? __("Confirm & Remap")
-		: __("Confirm & Create");
+	let dialog_title =
+		mode === "remap"
+			? __("Remap Schema — {0}", [doctype_name])
+			: __("Review Field Types — {0}", [doctype_name]);
+	let action_label = mode === "remap" ? __("Confirm & Remap") : __("Confirm & Create");
 
 	let d = new frappe.ui.Dialog({
 		title: dialog_title,
@@ -316,8 +406,10 @@ function show_preview_dialog(frm, preview_data, mode, new_table_name) {
 			});
 			if (reserved_errors.length > 0) {
 				frappe.msgprint(
-					__("Reserved column(s) need a unique label: <strong>{0}</strong>.<br>Choose a label that doesn't resolve to a reserved name (e.g. 'Event Name' instead of 'Name').",
-						[reserved_errors.join(", ")])
+					__(
+						"Reserved column(s) need a unique label: <strong>{0}</strong>.<br>Choose a label that doesn't resolve to a reserved name (e.g. 'Event Name' instead of 'Name').",
+						[reserved_errors.join(", ")],
+					),
 				);
 				return;
 			}
@@ -328,7 +420,9 @@ function show_preview_dialog(frm, preview_data, mode, new_table_name) {
 				return;
 			}
 			if (!name_field_column && matching_fields.length === 0) {
-				frappe.msgprint(__("Please select at least one matching field, or use a column as Name."));
+				frappe.msgprint(
+					__("Please select at least one matching field, or use a column as Name."),
+				);
 				return;
 			}
 
@@ -343,7 +437,8 @@ function show_preview_dialog(frm, preview_data, mode, new_table_name) {
 			d.get_primary_btn().prop("disabled", true).text(busy_text);
 
 			let call_method = mode === "remap" ? "remap_schema" : "mirror_schema";
-			let freeze_msg = mode === "remap" ? __("Remapping schema...") : __("Creating DocType...");
+			let freeze_msg =
+				mode === "remap" ? __("Remapping schema...") : __("Creating DocType...");
 
 			let call_args = {
 				field_overrides: JSON.stringify(field_overrides),
@@ -380,24 +475,24 @@ function show_preview_dialog(frm, preview_data, mode, new_table_name) {
 	let html = `
 		<div style="margin-bottom: 10px;">
 			<span class="text-muted">${__(
-				"Review the proposed field types below. Adjust any that look incorrect before creating the DocType."
+				"Review the proposed field types below. Adjust any that look incorrect before creating the DocType.",
 			)}</span>
 			<br>
 			<span class="text-muted"><strong>${__("Matching Fields:")}</strong> ${__(
-		"Select up to 3 fields to use for matching records during sync (useful when the table lacks unique keys)."
-	)}</span>
+				"Select up to 3 fields to use for matching records during sync (useful when the table lacks unique keys).",
+			)}</span>
 		<br>
 		<span class="text-muted"><strong>${__("Frappe ID:")}</strong> ${__(
-		"Select one column to use as Frappe's record ID (skips field creation, enables fast direct lookup)."
-	)}</span>
+			"Select one column to use as Frappe's record ID (skips field creation, enables fast direct lookup).",
+		)}</span>
 		<br>
 		<span class="text-muted"><strong>${__("Auto:")}</strong> ${__(
-		"Mark columns that are auto-generated by the source (e.g. auto_increment). These will be skipped when writing records back to the source."
-	)}</span>
+			"Mark columns that are auto-generated by the source (e.g. auto_increment). These will be skipped when writing records back to the source.",
+		)}</span>
 		<br>
 		<span class="text-muted"><strong>${__("Mod TS / Created TS:")}</strong> ${__(
-		"Pick the modified-timestamp field (required) and optionally the created-timestamp field. Only datetime/timestamp columns are selectable."
-	)}</span>
+			"Pick the modified-timestamp field (required) and optionally the created-timestamp field. Only datetime/timestamp columns are selectable.",
+		)}</span>
 		</div>
 		<div style="max-height: 500px; overflow-y: auto;">
 			<table class="table table-bordered table-sm" style="font-size: 13px;">
@@ -470,8 +565,8 @@ function show_preview_dialog(frm, preview_data, mode, new_table_name) {
 		}
 
 		// Timestamp radio buttons — only enabled for datetime/timestamp columns
-		let is_datetime = ["datetime", "timestamp", "Datetime"].some(
-			(t) => f.db_type.toLowerCase().includes(t.toLowerCase())
+		let is_datetime = ["datetime", "timestamp", "Datetime"].some((t) =>
+			f.db_type.toLowerCase().includes(t.toLowerCase()),
 		);
 		let previous_mod_ts = (preview_data.previous_modified_ts || "").toLowerCase();
 		let previous_crt_ts = (preview_data.previous_created_ts || "").toLowerCase();
@@ -591,7 +686,12 @@ function show_preview_dialog(frm, preview_data, mode, new_table_name) {
 					.val("Data")
 					.prop("disabled", true)
 					.css({ opacity: "0.45", "pointer-events": "none" })
-					.attr("title", __("This column maps to Frappe's name field (varchar) — no separate field is created"));
+					.attr(
+						"title",
+						__(
+							"This column maps to Frappe's name field (varchar) — no separate field is created",
+						),
+					);
 			} else {
 				$(this)
 					.prop("disabled", false)
@@ -660,6 +760,156 @@ function show_preview_dialog(frm, preview_data, mode, new_table_name) {
 	d.show();
 }
 
+function show_external_link_dialog(frm, preview_data) {
+	let wp_fields = preview_data.fields;
+	let frappe_fields = preview_data.frappe_fields;
+	let doctype_name = preview_data.doctype_name;
+
+	let frappe_field_options = frappe_fields.map((f) => f.fieldname);
+
+	let prev_mapping = {};
+	try {
+		prev_mapping = JSON.parse(frm.doc.column_mapping || "{}");
+	} catch (e) {}
+	let prev_name_col = frm.doc.name_field_column || null;
+	let prev_matching = (frm.doc.matching_fields || "")
+		.split(",")
+		.map((s) => s.trim())
+		.filter(Boolean);
+	let prev_mod_ts = frm.doc.modified_timestamp_field || null;
+	let prev_crt_ts = frm.doc.created_timestamp_field || null;
+
+	let rows_html = "";
+	wp_fields.forEach(function (col) {
+		let col_name = col.column_name || col.name;
+		let suggested = "";
+		if (prev_mapping[col_name] && prev_mapping[col_name].fieldname) {
+			suggested = prev_mapping[col_name].fieldname;
+		} else if (frappe_field_options.includes(col_name)) {
+			suggested = col_name;
+		} else {
+			let scrubbed = _scrub_fieldname(col_name);
+			suggested = frappe_field_options.includes(scrubbed) ? scrubbed : "";
+		}
+
+		let options_html = `<option value="">(skip)</option>`;
+		frappe_field_options.forEach(function (fn) {
+			let sel = fn === suggested ? " selected" : "";
+			options_html += `<option value="${fn}"${sel}>${fn}</option>`;
+		});
+
+		let name_checked = col_name === prev_name_col ? " checked" : "";
+		let match_checked = prev_matching.includes(col_name) ? " checked" : "";
+		let mod_checked = col_name === prev_mod_ts ? " checked" : "";
+		let crt_checked = col_name === prev_crt_ts ? " checked" : "";
+
+		rows_html += `
+		<tr>
+			<td style="padding:4px 8px;font-family:monospace;white-space:nowrap">${col_name}</td>
+			<td style="padding:4px 8px">
+				<select class="ext-field-select form-control form-control-sm" data-col="${col_name}" style="min-width:160px">
+					${options_html}
+				</select>
+			</td>
+			<td style="padding:4px 8px;text-align:center">
+				<input type="radio" name="ext_name_col" class="ext-name-radio" value="${col_name}" ${name_checked}>
+			</td>
+			<td style="padding:4px 8px;text-align:center">
+				<input type="checkbox" class="ext-match-cb" data-col="${col_name}" ${match_checked}>
+			</td>
+			<td style="padding:4px 8px;text-align:center">
+				<input type="radio" name="ext_mod_ts" class="ext-mod-ts-radio" value="${col_name}" ${mod_checked}>
+			</td>
+			<td style="padding:4px 8px;text-align:center">
+				<input type="radio" name="ext_crt_ts" class="ext-crt-ts-radio" value="${col_name}" ${crt_checked}>
+			</td>
+		</tr>`;
+	});
+
+	let html = `
+	<div style="overflow-x:auto">
+		<p class="text-muted small">Map each WordPress column to an existing field on <strong>${doctype_name}</strong>. Unmapped columns (skip) will not be synced.</p>
+		<table class="table table-bordered table-sm" style="font-size:13px">
+			<thead>
+				<tr>
+					<th>WP Column</th>
+					<th>&rarr; Frappe Field</th>
+					<th title="Use this column as the Frappe record name">Use as Name</th>
+					<th title="Use for matching records during sync">Match</th>
+					<th title="Modified timestamp - drives TS Compare sync">Mod TS</th>
+					<th title="Created timestamp (optional)">Crt TS</th>
+				</tr>
+			</thead>
+			<tbody>
+				${rows_html}
+			</tbody>
+		</table>
+	</div>`;
+
+	let d = new frappe.ui.Dialog({
+		title: __("Link & Configure \u2014 {0}", [doctype_name]),
+		size: "extra-large",
+		fields: [{ fieldtype: "HTML", fieldname: "ext_map_html" }],
+		primary_action_label: __("Confirm & Link"),
+		primary_action: function () {
+			let column_mapping = {};
+			d.$wrapper.find(".ext-field-select").each(function () {
+				let col = $(this).data("col");
+				let fn = $(this).val();
+				if (fn) {
+					column_mapping[col] = { fieldname: fn };
+				}
+			});
+
+			let name_field_column = d.$wrapper.find(".ext-name-radio:checked").val() || "";
+
+			let matching_fields = [];
+			d.$wrapper.find(".ext-match-cb:checked").each(function () {
+				matching_fields.push($(this).data("col"));
+			});
+
+			let modified_ts_field = d.$wrapper.find(".ext-mod-ts-radio:checked").val() || "";
+			let created_ts_field = d.$wrapper.find(".ext-crt-ts-radio:checked").val() || "";
+
+			if (!name_field_column && matching_fields.length === 0) {
+				frappe.msgprint(
+					__("Please select either 'Use as Name' or at least one matching field."),
+				);
+				return;
+			}
+			if (!modified_ts_field) {
+				frappe.msgprint(__("Please select a Modified Timestamp field (Mod TS column)."));
+				return;
+			}
+
+			d.get_primary_btn().prop("disabled", true).text(__("Linking\u2026"));
+
+			frappe.call({
+				method: "link_external_doctype",
+				doc: frm.doc,
+				args: {
+					column_mapping: JSON.stringify(column_mapping),
+					matching_fields: matching_fields.join(","),
+					name_field_column: name_field_column || undefined,
+					modified_ts_field: modified_ts_field || undefined,
+					created_ts_field: created_ts_field || undefined,
+				},
+				freeze: true,
+				freeze_message: __("Saving link configuration..."),
+				callback: function () {
+					d.hide();
+					frm.reload_doc();
+				},
+				error: function () {
+					d.get_primary_btn().prop("disabled", false).text(__("Confirm & Link"));
+				},
+			});
+		},
+	});
+
+	d.show();
+	d.fields_dict.ext_map_html.$wrapper.html(html);
+}
 
 function show_sync_progress_dialog(frm) {
 	let label = frm.doc.nce_name || frm.doc.table_name || frm.doc.name;
@@ -703,12 +953,16 @@ function show_sync_progress_dialog(frm) {
 	}
 
 	function _stop_poll() {
-		if (poll_timer) { clearInterval(poll_timer); poll_timer = null; }
+		if (poll_timer) {
+			clearInterval(poll_timer);
+			poll_timer = null;
+		}
 	}
 
 	function _poll() {
 		frappe.db.get_value(
-			"WP Tables", frm.doc.name,
+			"WP Tables",
+			frm.doc.name,
 			["last_sync_log", "last_sync_status"],
 			function (data) {
 				if (!data) return;
@@ -731,10 +985,12 @@ function show_sync_progress_dialog(frm) {
 					});
 					d.get_primary_btn().prop("disabled", false);
 				}
-			}
+			},
 		);
 	}
 
 	poll_timer = setInterval(_poll, 1500);
-	d.$wrapper.on("hide.bs.modal", function () { _stop_poll(); });
+	d.$wrapper.on("hide.bs.modal", function () {
+		_stop_poll();
+	});
 }

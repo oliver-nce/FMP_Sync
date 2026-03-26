@@ -22,7 +22,6 @@ from nce_sync.utils.schema_mirror import get_wp_connection
 BATCH_SIZE = 500
 
 
-
 # =============================================================================
 # Helper Functions
 # =============================================================================
@@ -142,8 +141,8 @@ def sync_table(wp_table_doc):
 	Returns:
 		dict with sync results (rows_synced, rows_deleted, etc.)
 	"""
-	if wp_table_doc.mirror_status != "Mirrored":
-		frappe.throw(_("Table must be mirrored before syncing"))
+	if wp_table_doc.mirror_status not in ("Mirrored", "Linked"):
+		frappe.throw(_("Table must be in Mirrored or Linked status before syncing"))
 
 	if not wp_table_doc.frappe_doctype:
 		frappe.throw(_("No Frappe DocType associated with this table"))
@@ -177,6 +176,7 @@ def sync_table(wp_table_doc):
 	sync_direction = getattr(wp_table_doc, "sync_direction", "WP to Frappe") or "WP to Frappe"
 	if sync_direction != "WP to Frappe" and getattr(wp_table_doc, "name_field_column", None):
 		from nce_sync.utils.reverse_sync import sync_frappe_to_wp
+
 		reverse_result = sync_frappe_to_wp(wp_table_doc)
 		result["reverse_inserted"] = reverse_result.get("inserted", 0)
 		result["reverse_updated"] = reverse_result.get("updated", 0)
@@ -374,7 +374,13 @@ def _publish_sync_progress(table_name, rows_processed, total_rows, user=None):
 		user=user,
 	)
 	# Also update the doc so progress is visible on page refresh
-	frappe.db.set_value("WP Tables", table_name, "last_sync_log", f"Syncing: {rows_processed} of {total_rows} rows uploaded", update_modified=False)
+	frappe.db.set_value(
+		"WP Tables",
+		table_name,
+		"last_sync_log",
+		f"Syncing: {rows_processed} of {total_rows} rows uploaded",
+		update_modified=False,
+	)
 	frappe.db.commit()
 
 
@@ -550,9 +556,12 @@ def _sync_ts_compare(conn, wp_table_doc, wp_conn_doc, frappe_doctype, ts_field):
 	frappe_ts_field = get_frappe_fieldname(ts_field, column_mapping) if ts_field else None
 	frappe_create_ts_field = (
 		get_frappe_fieldname(wp_table_doc.created_timestamp_field, column_mapping)
-		if wp_table_doc.created_timestamp_field else None
+		if wp_table_doc.created_timestamp_field
+		else None
 	)
-	cutoff = _get_cutoff_timestamp(frappe_doctype, frappe_ts_field, wp_tz, fallback_ts_field=frappe_create_ts_field)
+	cutoff = _get_cutoff_timestamp(
+		frappe_doctype, frappe_ts_field, wp_tz, fallback_ts_field=frappe_create_ts_field
+	)
 
 	changed_rows = _fetch_changed_rows(
 		conn, table_name, ts_field, wp_table_doc.created_timestamp_field, cutoff
@@ -599,7 +608,10 @@ def _sync_ts_compare(conn, wp_table_doc, wp_conn_doc, frappe_doctype, ts_field):
 					frappe.db.rollback()
 				if (rows_upserted + rows_skipped) % 500 == 0:
 					_publish_sync_progress(
-						wp_table_doc.name, rows_upserted, total_to_sync, user=sync_user,
+						wp_table_doc.name,
+						rows_upserted,
+						total_to_sync,
+						user=sync_user,
 					)
 			frappe.db.commit()
 
@@ -615,7 +627,10 @@ def _sync_ts_compare(conn, wp_table_doc, wp_conn_doc, frappe_doctype, ts_field):
 
 	# Final progress update (always fires so small tables get at least one toast)
 	_publish_sync_progress(
-		wp_table_doc.name, rows_upserted, total_to_sync, user=sync_user,
+		wp_table_doc.name,
+		rows_upserted,
+		total_to_sync,
+		user=sync_user,
 	)
 
 	return {
@@ -678,7 +693,9 @@ def _sync_truncate_replace(conn, wp_table_doc, wp_conn_doc, frappe_doctype):
 
 				if rows_inserted % 500 == 0:
 					_publish_sync_progress(
-						wp_table_doc.name, rows_inserted, total_to_sync,
+						wp_table_doc.name,
+						rows_inserted,
+						total_to_sync,
 						user=getattr(wp_table_doc, "_sync_user", None),
 					)
 
@@ -688,7 +705,9 @@ def _sync_truncate_replace(conn, wp_table_doc, wp_conn_doc, frappe_doctype):
 
 	# Final progress update (always fires)
 	_publish_sync_progress(
-		wp_table_doc.name, rows_inserted, total_to_sync,
+		wp_table_doc.name,
+		rows_inserted,
+		total_to_sync,
 		user=getattr(wp_table_doc, "_sync_user", None),
 	)
 
@@ -902,7 +921,7 @@ def run_scheduled_syncs():
 		"WP Tables",
 		filters={
 			"auto_sync_active": 1,
-			"mirror_status": "Mirrored",
+			"mirror_status": ["in", ["Mirrored", "Linked"]],
 		},
 		fields=["name", "table_name", "last_synced"],
 	)
@@ -970,7 +989,9 @@ def _update_sync_manager_status(sync_manager, sync_frequency, tables_synced, tab
 
 	# Build log summary
 	if log_messages:
-		sync_manager.last_run_log = f"Synced: {tables_synced}, Failed: {tables_failed}\n" + "\n".join(log_messages)
+		sync_manager.last_run_log = f"Synced: {tables_synced}, Failed: {tables_failed}\n" + "\n".join(
+			log_messages
+		)
 	else:
 		sync_manager.last_run_log = "No tables due for sync"
 
@@ -1081,8 +1102,13 @@ def _run_sync_with_status(wp_table_doc, suppress_notifications=False):
 			)
 			wp_table_doc.save()
 
-			_create_sync_log(wp_table_doc.name, sync_method, sync_started,
-				status="Partial", error_message=wp_table_doc.last_sync_log)
+			_create_sync_log(
+				wp_table_doc.name,
+				sync_method,
+				sync_started,
+				status="Partial",
+				error_message=wp_table_doc.last_sync_log,
+			)
 			return
 
 		# Calculate record counts
@@ -1133,7 +1159,9 @@ def _run_sync_with_status(wp_table_doc, suppress_notifications=False):
 		# Only create a Sync Log record when something actually changed
 		if has_changes:
 			_create_sync_log(
-				wp_table_doc.name, sync_method, sync_started,
+				wp_table_doc.name,
+				sync_method,
+				sync_started,
 				status="Success",
 				records_synced=records_synced,
 				records_created=records_created,
@@ -1146,9 +1174,14 @@ def _run_sync_with_status(wp_table_doc, suppress_notifications=False):
 		wp_table_doc.last_sync_log = str(e)[:500]
 		wp_table_doc.save()
 
-		_create_sync_log(wp_table_doc.name, sync_method, sync_started,
-			status="Failed", error_message=str(e)[:500],
-			error_traceback=traceback.format_exc())
+		_create_sync_log(
+			wp_table_doc.name,
+			sync_method,
+			sync_started,
+			status="Failed",
+			error_message=str(e)[:500],
+			error_traceback=traceback.format_exc(),
+		)
 
 		frappe.log_error(title=f"Sync Error: {wp_table_doc.table_name}", message=str(e))
 		raise
@@ -1159,9 +1192,18 @@ def _run_sync_with_status(wp_table_doc, suppress_notifications=False):
 			frappe.flags.mute_emails = False
 
 
-def _create_sync_log(wp_table_name, sync_method, sync_started, status="Success",
-	records_synced=0, records_created=0, records_updated=0, records_deleted=0,
-	error_message=None, error_traceback=None):
+def _create_sync_log(
+	wp_table_name,
+	sync_method,
+	sync_started,
+	status="Success",
+	records_synced=0,
+	records_created=0,
+	records_updated=0,
+	records_deleted=0,
+	error_message=None,
+	error_traceback=None,
+):
 	"""Create a Sync Log record. Called only when there are actual changes or errors."""
 	sync_log = frappe.new_doc("Sync Log")
 	sync_log.wp_table = wp_table_name

@@ -7,3 +7,4 @@ fmp_sync.patches.add_listen_for_changes_to_fm_tables
 fmp_sync.patches.ensure_fmp_sync_settings
 fmp_sync.patches.create_table_links_page
 fmp_sync.patches.import_tables_workspace
+fmp_sync.patches.repair_tables_workspace_v15

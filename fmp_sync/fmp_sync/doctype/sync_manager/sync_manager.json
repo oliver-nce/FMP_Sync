@@ -1,0 +1,105 @@
+{
+ "actions": [],
+ "creation": "2026-02-11 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "sync_settings_section",
+  "syncing_active",
+  "column_break_settings",
+  "sync_frequency",
+  "status_section",
+  "last_run",
+  "last_run_status",
+  "column_break_status",
+  "next_scheduled_run",
+  "last_run_log"
+ ],
+ "fields": [
+  {
+   "fieldname": "sync_settings_section",
+   "fieldtype": "Section Break",
+   "label": "Sync Settings"
+  },
+  {
+   "default": "No",
+   "fieldname": "syncing_active",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Syncing Active",
+   "options": "Yes\nNo",
+   "reqd": 1,
+   "description": "Enable or disable all automatic syncing"
+  },
+  {
+   "fieldname": "column_break_settings",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "Hourly",
+   "fieldname": "sync_frequency",
+   "fieldtype": "Select",
+   "label": "Global Sync Frequency",
+   "options": "Every 5 Minutes\nEvery 15 Minutes\nEvery 30 Minutes\nHourly\nEvery 6 Hours\nDaily\nWeekly",
+   "description": "Overrides individual table sync frequency settings"
+  },
+  {
+   "fieldname": "status_section",
+   "fieldtype": "Section Break",
+   "label": "Sync Status"
+  },
+  {
+   "fieldname": "last_run",
+   "fieldtype": "Datetime",
+   "label": "Last Run",
+   "read_only": 1
+  },
+  {
+   "fieldname": "last_run_status",
+   "fieldtype": "Select",
+   "label": "Last Run Status",
+   "options": "\nSuccess\nPartial\nFailed",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_status",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "next_scheduled_run",
+   "fieldtype": "Datetime",
+   "label": "Next Scheduled Run",
+   "read_only": 1
+  },
+  {
+   "fieldname": "last_run_log",
+   "fieldtype": "Long Text",
+   "label": "Last Run Log",
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "issingle": 1,
+ "links": [],
+ "modified": "2026-02-13 12:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "FMP Sync",
+ "name": "Sync Manager",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

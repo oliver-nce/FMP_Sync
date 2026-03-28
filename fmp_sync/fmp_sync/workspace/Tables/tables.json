@@ -1,0 +1,74 @@
+{
+ "charts": [],
+ "content": "[{\"id\": \"0mzeg9TXjg\", \"type\": \"header\", \"data\": {\"text\": \"<span class=\\\"h4\\\"><b>System Tables</b></span>\", \"col\": 12}}, {\"id\": \"fm_conn_shortcut\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"FileMaker Connection\", \"col\": 4}}, {\"id\": \"fm_tables_shortcut\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"FM Tables\", \"col\": 4}}, {\"id\": \"sync_manager_shortcut\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Sync Manager\", \"col\": 4}}, {\"id\": \"fmp_sync_settings_shortcut\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Sync Settings\", \"col\": 4}}, {\"id\": \"sync_log_shortcut\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Sync Log\", \"col\": 4}}, {\"id\": \"Rc_NRS5hkB\", \"type\": \"header\", \"data\": {\"text\": \"<span class=\\\"h4\\\"><b>Data Tables</b></span>\", \"col\": 12}}, {\"id\": \"hdr_reports\", \"type\": \"header\", \"data\": {\"text\": \"<span class=\\\"h4\\\"><b>Reports</b></span>\", \"col\": 12}}, {\"id\": \"hdr_pages\", \"type\": \"header\", \"data\": {\"text\": \"<span class=\\\"h4\\\"><b>Pages</b></span>\", \"col\": 12}}, {\"id\": \"table_links_shortcut\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Table Links\", \"col\": 4}}]",
+ "creation": "2026-02-06 00:00:00",
+ "custom_blocks": [],
+ "docstatus": 0,
+ "doctype": "Workspace",
+ "for_user": "",
+ "hide_custom": 0,
+ "icon": "database",
+ "idx": 0,
+ "is_hidden": 0,
+ "label": "Tables",
+ "links": [],
+ "modified": "2026-03-01 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "FMP Sync",
+ "name": "Tables",
+ "number_cards": [],
+ "owner": "Administrator",
+ "parent_page": "",
+ "public": 1,
+ "quick_lists": [],
+ "restrict_to_domain": "",
+ "roles": [],
+ "sequence_id": 20.0,
+ "shortcuts": [
+  {
+   "color": "Blue",
+   "doc_view": "",
+   "label": "FileMaker Connection",
+   "link_to": "FileMaker Connection",
+   "type": "DocType"
+  },
+  {
+   "color": "Blue",
+   "doc_view": "List",
+   "label": "FM Tables",
+   "link_to": "FM Tables",
+   "stats_filter": "[]",
+   "type": "DocType"
+  },
+  {
+   "color": "Blue",
+   "doc_view": "",
+   "label": "Sync Manager",
+   "link_to": "Sync Manager",
+   "type": "DocType"
+  },
+  {
+   "color": "Blue",
+   "doc_view": "",
+   "label": "Sync Settings",
+   "link_to": "FMP Sync Settings",
+   "type": "DocType"
+  },
+  {
+   "color": "Blue",
+   "doc_view": "List",
+   "label": "Sync Log",
+   "link_to": "Sync Log",
+   "stats_filter": "[]",
+   "type": "DocType"
+  },
+  {
+   "color": "Blue",
+   "doc_view": "",
+   "label": "Table Links",
+   "link_to": "table-links",
+   "type": "Page"
+  }
+ ],
+ "title": "Tables"
+}

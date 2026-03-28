@@ -1,0 +1,138 @@
+{
+ "actions": [],
+ "creation": "2026-03-03 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "endpoint_name",
+  "endpoint_key",
+  "http_method",
+  "content_type",
+  "column_break_ep1",
+  "path",
+  "auth_override",
+  "documentation_url",
+  "description",
+  "samples_section",
+  "sample_submission",
+  "column_break_ep2",
+  "sample_response",
+  "guide_section",
+  "implementation_guide"
+ ],
+ "fields": [
+  {
+   "fieldname": "endpoint_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Endpoint Name",
+   "reqd": 1
+  },
+  {
+   "fieldname": "endpoint_key",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Endpoint Key",
+   "reqd": 1,
+   "description": "Code-friendly identifier, e.g. list_posts, create_charge"
+  },
+  {
+   "fieldname": "http_method",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "HTTP Method",
+   "options": "GET\nPOST\nPUT\nPATCH\nDELETE",
+   "default": "GET",
+   "reqd": 1
+  },
+  {
+   "fieldname": "content_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Content Type",
+   "options": "application/json\napplication/x-www-form-urlencoded\nmultipart/form-data\ntext/xml",
+   "default": "application/json"
+  },
+  {
+   "fieldname": "column_break_ep1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "path",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Path",
+   "reqd": 1,
+   "description": "URL path appended to base_url, e.g. /wp/v2/posts, /v1/charges"
+  },
+  {
+   "fieldname": "auth_override",
+   "fieldtype": "Select",
+   "label": "Auth Override",
+   "options": "Use Connector Default\nAPI Key\nBasic Auth\nBearer Token\nOAuth2\nNone",
+   "default": "Use Connector Default"
+  },
+  {
+   "fieldname": "documentation_url",
+   "fieldtype": "Data",
+   "label": "Documentation URL",
+   "options": "URL",
+   "description": "Link to API documentation for this endpoint"
+  },
+  {
+   "fieldname": "description",
+   "fieldtype": "Small Text",
+   "label": "Description"
+  },
+  {
+   "fieldname": "samples_section",
+   "fieldtype": "Section Break",
+   "label": "Samples",
+   "collapsible": 1
+  },
+  {
+   "fieldname": "sample_submission",
+   "fieldtype": "Code",
+   "label": "Sample Submission",
+   "options": "JSON",
+   "description": "Example request body for this endpoint"
+  },
+  {
+   "fieldname": "column_break_ep2",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "sample_response",
+   "fieldtype": "Code",
+   "label": "Sample Response",
+   "options": "JSON",
+   "description": "Example response from this endpoint"
+  },
+  {
+   "fieldname": "guide_section",
+   "fieldtype": "Section Break",
+   "label": "Implementation Guide",
+   "collapsible": 1
+  },
+  {
+   "fieldname": "implementation_guide",
+   "fieldtype": "Small Text",
+   "label": "Implementation Guide",
+   "description": "Usage notes, links to service documentation, and example code for this endpoint"
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-03-03 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "FMP Sync",
+ "name": "API Connector Endpoint",
+ "naming_rule": "Random",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 0
+}

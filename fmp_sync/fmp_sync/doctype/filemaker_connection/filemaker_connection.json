@@ -1,0 +1,153 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2026-02-06 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "connection_section",
+  "host",
+  "port",
+  "database",
+  "column_break_1",
+  "username",
+  "password",
+  "ssl_section",
+  "use_ssl",
+  "verify_ssl",
+  "connection_status_section",
+  "connection_status",
+  "connection_message",
+  "server_info_section",
+  "server_product_info",
+  "odata_base_url"
+ ],
+ "fields": [
+  {
+   "fieldname": "connection_section",
+   "fieldtype": "Section Break",
+   "label": "FileMaker Server Connection"
+  },
+  {
+   "fieldname": "host",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Server Host",
+   "reqd": 1,
+   "description": "FileMaker Server hostname or IP (e.g. fms.example.com)"
+  },
+  {
+   "fieldname": "port",
+   "fieldtype": "Int",
+   "default": "443",
+   "label": "Port",
+   "reqd": 1,
+   "description": "HTTPS port (default 443)"
+  },
+  {
+   "fieldname": "database",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Database Name",
+   "reqd": 1,
+   "description": "FM database filename (without .fmp12 extension)"
+  },
+  {
+   "fieldname": "column_break_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "username",
+   "fieldtype": "Data",
+   "label": "Username",
+   "reqd": 1,
+   "description": "FileMaker account with fmodata extended privilege"
+  },
+  {
+   "fieldname": "password",
+   "fieldtype": "Password",
+   "label": "Password",
+   "reqd": 1
+  },
+  {
+   "fieldname": "ssl_section",
+   "fieldtype": "Section Break",
+   "label": "SSL Settings"
+  },
+  {
+   "fieldname": "use_ssl",
+   "fieldtype": "Check",
+   "default": "1",
+   "label": "Use HTTPS",
+   "description": "HTTPS is required for OData API (always on in production)"
+  },
+  {
+   "fieldname": "verify_ssl",
+   "fieldtype": "Check",
+   "default": "1",
+   "label": "Verify SSL Certificate",
+   "description": "Uncheck for self-signed certificates in development only"
+  },
+  {
+   "fieldname": "connection_status_section",
+   "fieldtype": "Section Break",
+   "label": "Connection Status"
+  },
+  {
+   "fieldname": "connection_status",
+   "fieldtype": "Data",
+   "label": "Status",
+   "read_only": 1
+  },
+  {
+   "fieldname": "connection_message",
+   "fieldtype": "Small Text",
+   "label": "Message",
+   "read_only": 1
+  },
+  {
+   "fieldname": "server_info_section",
+   "fieldtype": "Section Break",
+   "label": "Server Info",
+   "collapsible": 1
+  },
+  {
+   "fieldname": "server_product_info",
+   "fieldtype": "Data",
+   "label": "FileMaker Server Version",
+   "read_only": 1,
+   "description": "Auto-detected during Test Connection"
+  },
+  {
+   "fieldname": "odata_base_url",
+   "fieldtype": "Data",
+   "label": "OData Base URL",
+   "read_only": 1,
+   "description": "Computed: https://{host}:{port}/fmi/odata/v4/{database}"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "issingle": 1,
+ "links": [],
+ "modified": "2026-02-06 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "FMP Sync",
+ "name": "FileMaker Connection",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

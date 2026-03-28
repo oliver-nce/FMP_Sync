@@ -1,0 +1,49 @@
+{
+ "actions": [],
+ "creation": "2026-03-28 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "internal_section",
+  "temp_name_counter"
+ ],
+ "fields": [
+  {
+   "fieldname": "internal_section",
+   "fieldtype": "Section Break",
+   "label": "Internal",
+   "description": "Used by FMP Sync for temporary document names before a FileMaker primary key is assigned. Do not edit unless instructed by support."
+  },
+  {
+   "default": "0",
+   "fieldname": "temp_name_counter",
+   "fieldtype": "Int",
+   "label": "Temp name counter",
+   "description": "Decremented when new mirrored rows get a temporary Frappe name. Updated automatically by the sync app."
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "issingle": 1,
+ "links": [],
+ "modified": "2026-03-28 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "FMP Sync",
+ "name": "FMP Sync Settings",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

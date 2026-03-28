@@ -1,0 +1,134 @@
+{
+  "_meta": {
+    "description": "Machine-readable index of every module in the FMP Sync (Tables) Frappe app. Read this file FIRST before exploring the codebase — it tells you exactly where to look for any given concern.",
+    "generated": "2026-03-27",
+    "usage": "Find the module whose 'purpose' matches your task, then read only that file and its 'depends_on' entries."
+  },
+
+  "architecture": {
+    "overview": "FMP Sync (app_title: Tables) synchronises FileMaker Server base tables to Frappe custom doctypes via the OData v4 API. It mirrors FM table schemas (from $metadata CSDL) as Frappe doctypes, then syncs data via OData GET requests. Reverse sync (Frappe → FM) is stubbed for future OData POST/PATCH implementation.",
+    "data_flow": "FileMaker OData v4 → schema_mirror.py (GET $metadata, parse CSDL XML, create/update Frappe doctype) → data_sync.py (GET records with $filter/$select → upsert Frappe records) | Frappe doc events → live_sync.py (stub) / reverse_sync.py (stub)",
+    "key_patterns": [
+      "FM Tables doctype is the central config record per synced table (column mapping, matching keys, field overrides, skipped/stored-calc fields)",
+      "FileMaker Connection is a Single DocType storing OData credentials (host, port, database, Basic Auth, SSL)",
+      "schema_mirror.py introspects FM table schema via OData $metadata CSDL XML and creates/updates Frappe custom doctype",
+      "data_sync.py does incremental sync using OData $filter on timestamp fields, with paginated GET via @odata.nextLink",
+      "live_sync.py and reverse_sync.py are no-op stubs — will use OData POST/PATCH when reverse sync is needed",
+      "classify_field() skips unstored calcs (Computed=true), containers (Edm.Binary/Stream), and repeating fields (MaxRepetitions>1)",
+      "API Connector stores external API credentials (base_url, auth_pattern, credential_config JSON)"
+    ]
+  },
+
+  "backend": {
+    "fmp_sync/hooks.py": {
+      "purpose": "App config: metadata, CSS/JS includes, apps screen registration (title: Tables, route: /app/tables)",
+      "exports": ["app_name", "add_to_apps_screen", "app_include_css", "app_include_js"],
+      "depends_on": [],
+      "sections": ["App Metadata", "Global CSS/JS", "Apps Screen"]
+    },
+    "fmp_sync/api.py": {
+      "purpose": "Whitelisted page-level endpoints: toggle auto-sync, get table links grid, apply table link changes, export doctype to Excel",
+      "exports": ["toggle_auto_sync", "get_table_links_grid_data", "apply_table_link_changes", "export_all_to_excel"],
+      "depends_on": ["fmp_sync/fmp_sync/doctype/fm_tables/", "fmp_sync/utils/data_sync.py"],
+      "sections": ["Auto-sync toggle", "Table links grid", "Excel export"]
+    },
+    "fmp_sync/overrides.py": {
+      "purpose": "Frappe lifecycle override hooks: injects FMP Sync version label into Tables workspace",
+      "exports": ["get_desktop_page"],
+      "depends_on": ["fmp_sync/utils/workspace_utils.py"],
+      "sections": ["Desktop page override", "Version injection"]
+    },
+    "fmp_sync/utils/schema_mirror.py": {
+      "purpose": "FileMaker OData schema introspection and Frappe doctype mirroring: GET $metadata CSDL XML, parse EntityType Properties, classify fields (include/skip), map EDM types to Frappe types, create or update Frappe custom doctype",
+      "exports": ["sanitize_fieldname", "resolve_fieldname", "get_matching_fields_list", "build_frappe_field", "get_fm_session", "discover_tables_and_views", "detect_timestamp_fields", "get_table_schema", "map_edm_to_frappe_type", "classify_field", "preview_table_schema", "mirror_table_schema", "create_custom_doctype", "update_existing_doctype"],
+      "private_helpers": ["_odata_get", "_odata_get_xml", "_discover_base_tables", "_property_to_field_dict"],
+      "depends_on": ["fmp_sync/fmp_sync/doctype/filemaker_connection/", "fmp_sync/fmp_sync/doctype/fm_tables/"],
+      "sections": ["Field name helpers", "OData session", "OData helpers", "Schema discovery", "Field classification", "EDM type mapping", "Preview", "DocType creation/update"]
+    },
+    "fmp_sync/utils/data_sync.py": {
+      "purpose": "FM-to-Frappe incremental data sync via OData: fetch changed records using $filter on timestamp fields, paginate with @odata.nextLink, upsert Frappe records, publish progress events",
+      "exports": ["sync_table", "get_frappe_fieldname", "build_reverse_mapping", "run_scheduled_syncs", "run_sync_for_table"],
+      "private_helpers": ["_odata_get", "_odata_get_all", "_build_odata_filter", "_build_odata_select", "_count_fm_records", "_fetch_changed_records", "_fetch_all_records", "_fetch_fm_key_set", "_fetch_records_by_keys", "_get_cutoff_timestamp", "_convert_row", "_convert_odata_ts_to_frappe", "_upsert_record", "_insert_record", "_delete_orphans", "_sync_ts_compare", "_sync_truncate_replace", "_publish_sync_progress"],
+      "depends_on": ["fmp_sync/fmp_sync/doctype/fm_tables/", "fmp_sync/fmp_sync/doctype/filemaker_connection/", "fmp_sync/utils/schema_mirror.py"],
+      "sections": ["Helpers", "OData data-access", "Timestamp conversion", "Sync entry point", "TS Compare strategy", "Truncate & Replace strategy", "Row conversion", "Frappe record ops", "Scheduler"]
+    },
+    "fmp_sync/utils/live_sync.py": {
+      "purpose": "STUB — Real-time Frappe-to-FM sync triggered by doc events. Hook handler is kept functional (cache, enqueue) but push_record_to_fm is a no-op. Will use OData PATCH/POST when implemented.",
+      "exports": ["on_record_change", "push_record_to_fm", "clear_sql_direct_cache"],
+      "private_helpers": ["_get_listen_map"],
+      "depends_on": ["fmp_sync/fmp_sync/doctype/fm_tables/"],
+      "sections": ["Cache helpers", "Hook handler", "Background job (stub)"]
+    },
+    "fmp_sync/utils/reverse_sync.py": {
+      "purpose": "STUB — Full Frappe-to-FM bulk sync. assign_temp_name hook is kept functional. Core sync functions (sync_frappe_to_fm, insert/update) are no-op stubs. Will use OData POST/PATCH when implemented.",
+      "exports": ["sync_frappe_to_fm", "assign_temp_name", "insert_record_to_fm", "update_record_in_fm"],
+      "private_helpers": ["_next_temp_name", "_is_mirrored_doctype", "_looks_like_temp_or_hash", "_is_temp_name"],
+      "depends_on": ["fmp_sync/fmp_sync/doctype/fm_tables/"],
+      "sections": ["Temp name management", "before_insert hook", "Reverse sync stubs"]
+    },
+    "fmp_sync/utils/workspace_utils.py": {
+      "purpose": "Frappe Workspace creation/management utilities for FMP Sync",
+      "exports": ["add_to_workspace", "remove_from_workspace", "sync_tables_workspace_shortcuts"],
+      "depends_on": [],
+      "sections": ["Workspace helpers"]
+    }
+  },
+
+  "doctypes": {
+    "fmp_sync/fmp_sync/doctype/fm_tables/": {
+      "purpose": "Central config per synced FileMaker table: table name, Frappe doctype name, column mapping, matching keys, timestamp fields, auto-sync flag, skipped/stored-calc fields metadata",
+      "key_fields": ["table_name", "frappe_doctype", "column_mapping", "matching_fields", "modified_timestamp_field", "created_timestamp_field", "auto_sync_active", "skipped_fields", "stored_calc_fields"],
+      "client_js": ["fm_tables.js (form actions)", "fm_tables_list.js (list view actions)"],
+      "depends_on": ["filemaker_connection"]
+    },
+    "fmp_sync/fmp_sync/doctype/filemaker_connection/": {
+      "purpose": "FileMaker OData v4 connection config (Single DocType): host, port, database, username, password, SSL settings. Provides get_odata_session(), test_connection(), discover_tables().",
+      "key_fields": ["host", "port", "database", "username", "password", "use_ssl", "verify_ssl"],
+      "client_js": ["filemaker_connection.js"],
+      "depends_on": []
+    },
+    "fmp_sync/fmp_sync/doctype/api_connector/": {
+      "purpose": "External API connector config: base_url, auth_pattern, credential_config (JSON).",
+      "key_fields": ["connector_name", "base_url", "auth_pattern", "credential_config"],
+      "client_js": ["api_connector.js", "api_connector_list.js"],
+      "depends_on": []
+    },
+    "fmp_sync/fmp_sync/doctype/api_connector_endpoint/": {
+      "purpose": "Individual API endpoint definition linked to an API Connector",
+      "key_fields": ["endpoint_name", "method", "path", "parent_connector"],
+      "depends_on": ["api_connector"]
+    },
+    "fmp_sync/fmp_sync/doctype/sync_manager/": {
+      "purpose": "Global sync manager — enable/disable syncing, set frequency, view last run status",
+      "key_fields": ["syncing_active", "sync_frequency", "last_run", "last_run_status"],
+      "client_js": ["sync_manager.js"],
+      "depends_on": ["fm_tables"]
+    },
+    "fmp_sync/fmp_sync/doctype/sync_log/": {
+      "purpose": "Audit log of each sync run: table, records synced/created/updated/deleted, duration, errors",
+      "key_fields": ["fm_table", "records_synced", "status", "error_message", "duration_seconds"],
+      "depends_on": []
+    }
+  },
+
+  "pages": {
+    "fmp_sync/fmp_sync/page/fmp_sync/": {
+      "purpose": "Main FMP Sync dashboard page — table list, sync triggers, status display",
+      "client_js": "fmp_sync.js",
+      "depends_on": []
+    },
+    "fmp_sync/fmp_sync/page/table_links/": {
+      "purpose": "Table Links page — visual grid for managing cross-table relationships (which FM tables are linked to which Frappe doctypes)",
+      "client_js": "table_links.js",
+      "depends_on": []
+    }
+  },
+
+  "frontend_public": {
+    "fmp_sync/public/js/list_auto_size.js": {
+      "purpose": "Global JS — auto-sizes list view columns for better readability",
+      "exports": [],
+      "depends_on": []
+    }
+  }
+}

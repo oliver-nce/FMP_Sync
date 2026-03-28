@@ -12,7 +12,6 @@ import frappe
 _WORKSPACE_NAME = "Tables"
 _WORKSPACE_JSON = (
 	"fmp_sync",
-	"fmp_sync",
 	"workspace",
 	"Tables",
 	"tables.json",

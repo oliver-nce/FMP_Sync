@@ -6,3 +6,4 @@ fmp_sync.patches.add_listen_for_changes_to_fm_tables
 [post_model_sync]
 fmp_sync.patches.ensure_fmp_sync_settings
 fmp_sync.patches.create_table_links_page
+fmp_sync.patches.import_tables_workspace

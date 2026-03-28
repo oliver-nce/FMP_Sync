@@ -1,72 +1,25 @@
-# Byte-compiled / optimized / DLL files
-__pycache__/
-*.py[cod]
-*$py.class
-*.pyc
-*.py~
+# Exclude the WordPress sync app — it lives in its own repo (NCE_Sync)
+nce_sync/
 
-# Distribution / packaging
-.Python
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
-tags
-MANIFEST
-
-# Environments
-.env
-.venv
-env/
-venv/
-ENV/
-env.bak/
-venv.bak/
-
-# Dependency directories
-node_modules/
-jspm_packages/
-
-# IDEs and editors
-.vscode/
-.vs/
-.idea/
-.kdev4/
-*.kdev4
-*.DS_Store
-*.swp
-*.comp.js
-.wnf-lang-status
-*debug.log
-
-# Helix Editor
-.helix/
-
-# Aider AI Chat
-.aider*
-
-# Internal documentation (not for public repo)
-_internal/
-Docs/
-DESIGN_SPEC.md
-FIELD_MATCHING_DIALOG_FIXES.md
-HANDOFF.md
-MATCHING_FIELDS_FEATURE.md
+# Planning / notes docs (not part of the installable app)
+CODING_PLAN.md
+PLAN_FMP_ADAPTATION.md
 PLAN_APP_FINALIZATION.md
-QUICKSTART.md
+HANDOFF.md
+DESIGN_SPEC.md
+MATCHING_FIELDS_FEATURE.md
 V15_COMPATIBILITY_FIX.md
 WORKSPACE_CLEANUP_FIX.md
+FIELD_MATCHING_DIALOG_FIXES.md
+QUICKSTART.md
 
-# Cursor AI rules (symlinked from shared config)
+# Python bytecode
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Cursor / editor internals
 .cursor/
-Frappe Context
-.rules
+_internal/
+Docs/
+Frappe Context/

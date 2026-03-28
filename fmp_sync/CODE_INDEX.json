@@ -1,7 +1,7 @@
 {
   "_meta": {
     "description": "Machine-readable index of every module in the FMP Sync (Tables) Frappe app. Read this file FIRST before exploring the codebase — it tells you exactly where to look for any given concern.",
-    "generated": "2026-03-27",
+    "generated": "2026-03-28",
     "usage": "Find the module whose 'purpose' matches your task, then read only that file and its 'depends_on' entries."
   },
 
@@ -21,16 +21,22 @@
 
   "backend": {
     "fmp_sync/hooks.py": {
-      "purpose": "App config: metadata, CSS/JS includes, apps screen registration (title: Tables, route: /app/tables)",
-      "exports": ["app_name", "add_to_apps_screen", "app_include_css", "app_include_js"],
-      "depends_on": [],
-      "sections": ["App Metadata", "Global CSS/JS", "Apps Screen"]
+      "purpose": "App config: metadata, CSS/JS includes, apps screen registration (title: Tables, route: /app/tables), after_install hook",
+      "exports": ["app_name", "add_to_apps_screen", "app_include_css", "app_include_js", "after_install"],
+      "depends_on": ["fmp_sync/install.py"],
+      "sections": ["App Metadata", "Global CSS/JS", "Apps Screen", "Install hook"]
     },
     "fmp_sync/api.py": {
       "purpose": "Whitelisted page-level endpoints: toggle auto-sync, get table links grid, apply table link changes, export doctype to Excel",
       "exports": ["toggle_auto_sync", "get_table_links_grid_data", "apply_table_link_changes", "export_all_to_excel"],
       "depends_on": ["fmp_sync/fmp_sync/doctype/fm_tables/", "fmp_sync/utils/data_sync.py"],
       "sections": ["Auto-sync toggle", "Table links grid", "Excel export"]
+    },
+    "fmp_sync/install.py": {
+      "purpose": "App install/upgrade helpers: ensure_fmp_sync_settings_row() creates the FMP Sync Settings singleton on first install; after_install() is called by Frappe post bench install-app.",
+      "exports": ["after_install", "ensure_fmp_sync_settings_row"],
+      "depends_on": ["fmp_sync/fmp_sync/doctype/fmp_sync_settings/"],
+      "sections": ["Singleton bootstrap", "after_install hook"]
     },
     "fmp_sync/overrides.py": {
       "purpose": "Frappe lifecycle override hooks: injects FMP Sync version label into Tables workspace",
@@ -60,10 +66,10 @@
       "sections": ["Cache helpers", "Hook handler", "Background job (stub)"]
     },
     "fmp_sync/utils/reverse_sync.py": {
-      "purpose": "STUB — Full Frappe-to-FM bulk sync. assign_temp_name hook is kept functional. Core sync functions (sync_frappe_to_fm, insert/update) are no-op stubs. Will use OData POST/PATCH when implemented.",
+      "purpose": "STUB — Full Frappe-to-FM bulk sync. assign_temp_name hook is kept functional (allocates negative integer temp names via FMP Sync Settings singleton). Core sync functions (sync_frappe_to_fm, insert/update) are no-op stubs. Will use OData POST/PATCH when implemented.",
       "exports": ["sync_frappe_to_fm", "assign_temp_name", "insert_record_to_fm", "update_record_in_fm"],
       "private_helpers": ["_next_temp_name", "_is_mirrored_doctype", "_looks_like_temp_or_hash", "_is_temp_name"],
-      "depends_on": ["fmp_sync/fmp_sync/doctype/fm_tables/"],
+      "depends_on": ["fmp_sync/fmp_sync/doctype/fm_tables/", "fmp_sync/fmp_sync/doctype/fmp_sync_settings/"],
       "sections": ["Temp name management", "before_insert hook", "Reverse sync stubs"]
     },
     "fmp_sync/utils/workspace_utils.py": {
@@ -104,9 +110,30 @@
       "client_js": ["sync_manager.js"],
       "depends_on": ["fm_tables"]
     },
+    "fmp_sync/fmp_sync/doctype/fmp_sync_settings/": {
+      "purpose": "Internal Single DocType: stores temp_name_counter (Int) used by reverse_sync._next_temp_name() to allocate negative temporary Frappe document names before a FileMaker primary key is known.",
+      "key_fields": ["temp_name_counter"],
+      "issingle": true,
+      "depends_on": []
+    },
     "fmp_sync/fmp_sync/doctype/sync_log/": {
       "purpose": "Audit log of each sync run: table, records synced/created/updated/deleted, duration, errors",
       "key_fields": ["fm_table", "records_synced", "status", "error_message", "duration_seconds"],
+      "depends_on": []
+    }
+  },
+
+  "patches": {
+    "fmp_sync/patches/ensure_fmp_sync_settings.py": {
+      "purpose": "post_model_sync patch: calls install.ensure_fmp_sync_settings_row() so existing sites get the FMP Sync Settings singleton row after bench migrate.",
+      "depends_on": ["fmp_sync/install.py"]
+    },
+    "fmp_sync/patches/create_table_links_page.py": {
+      "purpose": "post_model_sync patch: creates the Table Links Frappe Page record if it does not already exist.",
+      "depends_on": []
+    },
+    "fmp_sync/patches/add_listen_for_changes_to_fm_tables.py": {
+      "purpose": "pre_model_sync patch: adds the listen_for_changes field to FM Tables DocType if missing (schema migration).",
       "depends_on": []
     }
   },

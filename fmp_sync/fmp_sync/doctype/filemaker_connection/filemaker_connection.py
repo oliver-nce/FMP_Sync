@@ -11,7 +11,7 @@ Provides test_connection (GET service document) and discover_tables
 
 import json
 import time
-from urllib.parse import quote, urlencode
+from urllib.parse import quote
 
 import frappe
 import requests
@@ -29,11 +29,16 @@ FM_ODATA_RETRY_BASE_DELAY = 1.0
 
 
 def _fm_odata_url(url, params=None):
-	"""Build ``url?query`` for OData. FileMaker rejects ``+`` as space encoding; use ``%20``."""
+	"""Build ``url?query`` for OData.
+
+	- Option **names** stay literal ``$select``, ``$top`` (curl-style). Some stacks mishandle
+	  ``%24top`` even though it is valid.
+	- **Values** use ``urllib.parse.quote`` so spaces are ``%20``, never ``+`` (FileMaker rejects ``+``).
+	"""
 	if not params:
 		return url
-	qs = urlencode(params, quote_via=quote)
-	return f"{url}?{qs}"
+	parts = [f"{k}={quote(str(v), safe='')}" for k, v in params.items()]
+	return f"{url}?{'&'.join(parts)}"
 
 
 def _fm_session_get_with_retries(session, url, params=None, timeout=30):
@@ -71,7 +76,10 @@ def _fm_odata_collect_paged(session, url, params=None, page_size=100, *, allow_4
 	skip = 0
 	ps = max(1, int(page_size))
 	while True:
-		p = {**base, "$top": str(ps), "$skip": str(skip)}
+		p = dict(base)
+		p["$top"] = str(ps)
+		if skip > 0:
+			p["$skip"] = str(skip)
 		req_url = _fm_odata_url(url, p)
 		resp = _fm_session_get_with_retries(session, req_url, params=None, timeout=30)
 		data = _fm_odata_apply_status(resp, req_url, allow_404=allow_404 and skip == 0)
@@ -305,6 +313,8 @@ class FileMakerConnection(Document):
 		session.headers.update({
 			"Accept": "application/json",
 			"OData-Version": "4.0",
+			# Avoid gzip on large OData JSON; some paths truncate mid-stream while decompressing.
+			"Accept-Encoding": "identity",
 		})
 		base_url = self.get_odata_base_url()
 		return session, base_url

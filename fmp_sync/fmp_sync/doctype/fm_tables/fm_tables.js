@@ -71,6 +71,23 @@ function show_sync_curl_dialog(frm, curl) {
 		fields: [
 			{
 				fieldtype: "HTML",
+				fieldname: "fetch_actions",
+				options:
+					'<p style="margin-bottom:10px">' +
+					'<button type="button" class="btn btn-primary btn-sm" id="fmp-sync-fetch-copy-rows">' +
+					__("Fetch & copy JSON (first 500)") +
+					"</button> " +
+					'<button type="button" class="btn btn-warning btn-sm" id="fmp-sync-import-first-page">' +
+					__("Import first 500 into Frappe") +
+					"</button></p>" +
+					"<p class='text-muted small' style='margin-bottom:0'>" +
+					__(
+						"Same OData request as sync: $top=500 and $select from your mapping. Copy JSON only reads data. Import upserts into the mirrored DocType (matching keys updated like TS Compare) — not a full sync (no orphan deletes).",
+					) +
+					"</p>",
+			},
+			{
+				fieldtype: "HTML",
 				fieldname: "warn",
 				options:
 					"<p class='text-danger' style='margin-bottom:10px'>" +
@@ -102,31 +119,104 @@ function show_sync_curl_dialog(frm, curl) {
 	d.show();
 	const $ta = d.$wrapper.find("#fmp-sync-curl-ta");
 	$ta.val(curl);
+
+	const copyTextToClipboard = function (text, successMsg) {
+		const done = function () {
+			frappe.show_alert({
+				message: successMsg || __("Copied"),
+				indicator: "green",
+			});
+		};
+		if (navigator.clipboard && navigator.clipboard.writeText) {
+			navigator.clipboard.writeText(text).then(done, function () {
+				try {
+					const ta = document.createElement("textarea");
+					ta.value = text;
+					document.body.appendChild(ta);
+					ta.select();
+					document.execCommand("copy");
+					document.body.removeChild(ta);
+					done();
+				} catch (e) {
+					frappe.msgprint(__("Could not copy automatically — select text manually."));
+				}
+			});
+		} else {
+			try {
+				const ta = document.createElement("textarea");
+				ta.value = text;
+				document.body.appendChild(ta);
+				ta.select();
+				document.execCommand("copy");
+				document.body.removeChild(ta);
+				done();
+			} catch (e) {
+				frappe.msgprint(__("Could not copy automatically."));
+			}
+		}
+	};
+
+	d.$wrapper.find("#fmp-sync-fetch-copy-rows").on("click", function () {
+		frappe.call({
+			method: "fetch_sync_first_page_for_clipboard",
+			doc: frm.doc,
+			freeze: true,
+			freeze_message: __("Fetching from FileMaker…"),
+			callback: function (r) {
+				const msg = r.message;
+				if (!msg || typeof msg.text !== "string") {
+					frappe.msgprint(__("No data returned."));
+					return;
+				}
+				copyTextToClipboard(
+					msg.text,
+					__("Copied {0} row(s) as JSON", [msg.row_count != null ? msg.row_count : "?"]),
+				);
+			},
+		});
+	});
+
+	d.$wrapper.find("#fmp-sync-import-first-page").on("click", function () {
+		const dt = frm.doc.frappe_doctype || __("this DocType");
+		frappe.confirm(
+			__(
+				"Fetch the same OData page as sync ($top=500) and upsert into \"{0}\"? Existing rows with the same matching keys will be updated. This is not a full sync (orphan rows are not deleted).",
+				[dt],
+			),
+			function () {
+				frappe.call({
+					method: "import_first_500_rows_to_frappe",
+					doc: frm.doc,
+					freeze: true,
+					freeze_message: __("Importing from FileMaker…"),
+					callback: function (r) {
+						const m = r.message || {};
+						const parts = [
+							__("Fetched: {0}", [m.fetched]),
+							__("New: {0}", [m.inserted]),
+							__("Updated: {0}", [m.updated]),
+						];
+						if (m.skipped) {
+							parts.push(__("Skipped: {0}", [m.skipped]));
+						}
+						frappe.msgprint({
+							title: __("Import finished"),
+							message: parts.join(" · "),
+							indicator: m.skipped ? "orange" : "green",
+						});
+						frm.reload_doc();
+					},
+				});
+			},
+		);
+	});
+
 	d.$wrapper.find("#fmp-sync-curl-copy").on("click", function () {
 		const t = $ta.get(0);
 		t.focus();
 		t.select();
 		t.setSelectionRange(0, curl.length);
-		const done = function () {
-			frappe.show_alert({ message: __("Copied"), indicator: "green" });
-		};
-		if (navigator.clipboard && navigator.clipboard.writeText) {
-			navigator.clipboard.writeText(curl).then(done, function () {
-				try {
-					document.execCommand("copy");
-					done();
-				} catch (e) {
-					frappe.msgprint(__("Select the text and copy manually (Cmd/Ctrl+C)."));
-				}
-			});
-		} else {
-			try {
-				document.execCommand("copy");
-				done();
-			} catch (e) {
-				frappe.msgprint(__("Select the text and copy manually (Cmd/Ctrl+C)."));
-			}
-		}
+		copyTextToClipboard(curl, __("Copied"));
 	});
 }
 

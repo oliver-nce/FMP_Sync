@@ -677,6 +677,48 @@ class FMTables(Document):
 			alert=True,
 		)
 
+	def _sync_first_page_fm_rows(self):
+		"""Same OData GET as sync’s first page: ``$top=500`` and ``$select`` from column mapping.
+
+		Returns the OData ``value`` list (raw FM field names). Raises if validation fails.
+		"""
+		from fmp_sync.utils.data_sync import _build_odata_select, _odata_get, odata_http_timeout
+		from fmp_sync.utils.schema_mirror import get_fm_session
+
+		top = 500
+
+		if self.doctype_source == "Native":
+			frappe.throw(_("This action is only available for mirrored FileMaker tables."))
+
+		if not self.table_name:
+			frappe.throw(_("Table name is required."))
+
+		if self.mirror_status not in ("Mirrored", "Linked"):
+			frappe.throw(_("Table must be Mirrored or Linked."))
+
+		fm_conn = frappe.get_single("FileMaker Connection")
+		if not fm_conn:
+			frappe.throw(_("FileMaker Connection not configured"))
+
+		column_mapping = {}
+		if self.column_mapping:
+			column_mapping = json.loads(self.column_mapping)
+
+		select_fields = _build_odata_select(column_mapping)
+		params = {"$top": str(top)}
+		if select_fields:
+			params["$select"] = select_fields
+
+		session, base_url = get_fm_session(fm_conn)
+		http_timeout = odata_http_timeout(fm_conn)
+		try:
+			url = f"{base_url}/{self.table_name}"
+			data = _odata_get(session, url, params=params, timeout=http_timeout)
+		finally:
+			session.close()
+
+		return data.get("value") or []
+
 	@frappe.whitelist()
 	def get_sync_curl(self):
 		"""Shell-safe curl for the first OData page sync would use ($top=500, $select from mapping).
@@ -728,3 +770,81 @@ class FMTables(Document):
 			]
 		)
 		return {"curl": curl}
+
+	@frappe.whitelist()
+	def fetch_sync_first_page_for_clipboard(self):
+		"""Run the same first-page OData GET as Show Sync Curl.
+
+		Returns ``rows`` (list of dicts) for the dialog table plus ``text`` (JSON) for optional copy.
+		Does not run sync. Uses server-side session (no password sent to the browser).
+		"""
+		rows = self._sync_first_page_fm_rows()
+		text = json.dumps(rows, indent=2, default=str)
+		return {"row_count": len(rows), "text": text, "rows": rows}
+
+	@frappe.whitelist()
+	def import_first_500_rows_to_frappe(self):
+		"""Fetch the same first OData page as sync (``$top=500``, column ``$select``) and upsert into the mirrored DocType.
+
+		Uses ``_convert_row`` / ``_upsert_record`` — same path as TS Compare upserts. Does not delete orphans
+		or run full sync. Intended after a successful preview/curl test.
+		"""
+		from fmp_sync.utils.data_sync import BATCH_SIZE, _convert_row, _get_matching_keys, _upsert_record
+
+		if not self.frappe_doctype:
+			frappe.throw(_("No Frappe DocType associated with this table."))
+
+		if self.mirror_status not in ("Mirrored", "Linked"):
+			frappe.throw(_("Table must be Mirrored or Linked."))
+
+		rows = self._sync_first_page_fm_rows()
+		if not rows:
+			return {
+				"fetched": 0,
+				"inserted": 0,
+				"updated": 0,
+				"skipped": 0,
+				"errors_sample": [],
+			}
+
+		column_mapping = json.loads(self.column_mapping) if self.column_mapping else {}
+		matching_keys = _get_matching_keys(self)
+		doctype = self.frappe_doctype
+
+		inserted = 0
+		updated = 0
+		skipped = 0
+		errors_sample = []
+
+		for i, row in enumerate(rows):
+			try:
+				converted = _convert_row(row, column_mapping)
+				if _upsert_record(doctype, matching_keys, converted):
+					inserted += 1
+				else:
+					updated += 1
+			except Exception as e:
+				skipped += 1
+				if len(errors_sample) < 10:
+					errors_sample.append(str(e)[:200])
+				frappe.db.rollback()
+
+			processed = inserted + updated + skipped
+			if processed % BATCH_SIZE == 0:
+				frappe.db.commit()
+
+		frappe.db.commit()
+
+		if skipped:
+			frappe.log_error(
+				title=f"import_first_500_rows: skipped rows ({self.table_name})",
+				message="\n".join(errors_sample),
+			)
+
+		return {
+			"fetched": len(rows),
+			"inserted": inserted,
+			"updated": updated,
+			"skipped": skipped,
+			"errors_sample": errors_sample,
+		}

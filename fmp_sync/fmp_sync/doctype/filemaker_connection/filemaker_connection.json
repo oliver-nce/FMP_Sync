@@ -15,6 +15,8 @@
   "ssl_section",
   "use_ssl",
   "verify_ssl",
+  "advanced_section",
+  "odata_read_timeout",
   "connection_status_section",
   "connection_status",
   "connection_message",
@@ -90,6 +92,19 @@
    "default": "1",
    "label": "Verify SSL Certificate",
    "description": "Uncheck for self-signed certificates in development only"
+  },
+  {
+   "fieldname": "advanced_section",
+   "fieldtype": "Section Break",
+   "label": "Advanced",
+   "collapsible": 1
+  },
+  {
+   "fieldname": "odata_read_timeout",
+   "fieldtype": "Int",
+   "default": "180",
+   "label": "OData read timeout (seconds)",
+   "description": "Per-request read timeout for sync and OData pages (connect uses a shorter cap). Increase if you see Read timed out — e.g. 300 for slow servers or large portals. Range 30–900."
   },
   {
    "fieldname": "connection_status_section",

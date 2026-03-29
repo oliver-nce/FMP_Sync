@@ -28,6 +28,26 @@ BATCH_SIZE = 500
 # OData page size — FM Server default is 1000; explicit $top keeps things predictable
 ODATA_PAGE_SIZE = 1000
 
+# Default HTTP timeouts for OData: (connect, read) seconds per requests call.
+ODATA_DEFAULT_TIMEOUT = (30, 180)
+
+
+def odata_http_timeout(fm_conn_doc):
+	"""Return ``(connect, read)`` timeout tuple for ``requests`` from FileMaker Connection.
+
+	Read timeout applies to each OData page (slow servers / large payloads need more).
+	"""
+	read = getattr(fm_conn_doc, "odata_read_timeout", None)
+	if read in (None, ""):
+		read = ODATA_DEFAULT_TIMEOUT[1]
+	try:
+		read = int(read)
+	except (TypeError, ValueError):
+		read = ODATA_DEFAULT_TIMEOUT[1]
+	read = max(30, min(read, 900))
+	connect = min(30, max(5, read // 6))
+	return (connect, read)
+
 
 # =============================================================================
 # Helper Functions  (KEEP — data-source agnostic unless noted)
@@ -116,14 +136,14 @@ def get_timezone(tz_name):
 # =============================================================================
 
 
-def _odata_get(session, url, params=None, timeout=30):
+def _odata_get(session, url, params=None, timeout=None):
 	"""Core OData GET with error handling and JSON parsing.
 
 	Args:
 		session: requests.Session with Basic Auth
 		url: Full OData URL
 		params: Optional dict of query parameters ($filter, $select, etc.)
-		timeout: Request timeout in seconds
+		timeout: ``requests`` timeout — int (total) or ``(connect, read)`` tuple
 
 	Returns:
 		Parsed JSON response dict
@@ -131,6 +151,11 @@ def _odata_get(session, url, params=None, timeout=30):
 	Raises:
 		Exception with descriptive message on HTTP errors
 	"""
+	if timeout is None:
+		timeout = ODATA_DEFAULT_TIMEOUT
+	elif isinstance(timeout, (int, float)):
+		t = int(timeout)
+		timeout = (min(30, max(5, t // 4)), t)
 	resp = session.get(url, params=params, timeout=timeout)
 
 	if resp.status_code == 401:
@@ -144,7 +169,7 @@ def _odata_get(session, url, params=None, timeout=30):
 	return resp.json()
 
 
-def _odata_get_all(session, url, params=None, timeout=60):
+def _odata_get_all(session, url, params=None, timeout=None):
 	"""Paginated OData GET — follows @odata.nextLink until exhausted.
 
 	FileMaker Server returns pages of ~1000 records by default.
@@ -154,11 +179,13 @@ def _odata_get_all(session, url, params=None, timeout=60):
 		session: requests.Session with Basic Auth
 		url: Initial OData entity set URL
 		params: Initial query params ($filter, $select, $orderby, etc.)
-		timeout: Per-request timeout
+		timeout: Per-request timeout (int or ``(connect, read)`` tuple)
 
 	Returns:
 		list of record dicts (all pages combined)
 	"""
+	if timeout is None:
+		timeout = ODATA_DEFAULT_TIMEOUT
 	all_records = []
 	next_url = url
 	next_params = params
@@ -231,7 +258,7 @@ def _build_odata_select(column_mapping):
 # =============================================================================
 
 
-def _count_fm_records(session, base_url, table_name, filter_expr=None):
+def _count_fm_records(session, base_url, table_name, filter_expr=None, http_timeout=None):
 	"""Count records in a FM table via OData $count.
 
 	Args:
@@ -239,6 +266,7 @@ def _count_fm_records(session, base_url, table_name, filter_expr=None):
 		base_url: OData base URL
 		table_name: FM table name
 		filter_expr: Optional $filter expression
+		http_timeout: Optional ``(connect, read)`` for requests
 
 	Returns:
 		int: Record count
@@ -248,7 +276,8 @@ def _count_fm_records(session, base_url, table_name, filter_expr=None):
 	if filter_expr:
 		params["$filter"] = filter_expr
 
-	resp = session.get(url, params=params, timeout=30)
+	t = http_timeout if http_timeout is not None else ODATA_DEFAULT_TIMEOUT
+	resp = session.get(url, params=params, timeout=t)
 	resp.raise_for_status()
 
 	try:
@@ -257,8 +286,16 @@ def _count_fm_records(session, base_url, table_name, filter_expr=None):
 		return 0
 
 
-def _fetch_changed_records(session, base_url, table_name, ts_field,
-                           create_ts_field, cutoff, select_fields=None):
+def _fetch_changed_records(
+	session,
+	base_url,
+	table_name,
+	ts_field,
+	create_ts_field,
+	cutoff,
+	select_fields=None,
+	http_timeout=None,
+):
 	"""Fetch records changed since cutoff via OData $filter.
 
 	Args:
@@ -269,6 +306,7 @@ def _fetch_changed_records(session, base_url, table_name, ts_field,
 		create_ts_field: FM creation timestamp field name (may be None)
 		cutoff: datetime cutoff (None = fetch all records)
 		select_fields: Optional $select string
+		http_timeout: Per-request timeout for OData (tuple or int)
 
 	Returns:
 		list of record dicts from OData
@@ -282,10 +320,10 @@ def _fetch_changed_records(session, base_url, table_name, ts_field,
 	if select_fields:
 		params["$select"] = select_fields
 
-	return _odata_get_all(session, url, params=params if params else None)
+	return _odata_get_all(session, url, params=params if params else None, timeout=http_timeout)
 
 
-def _fetch_all_records(session, base_url, table_name, select_fields=None):
+def _fetch_all_records(session, base_url, table_name, select_fields=None, http_timeout=None):
 	"""Fetch all records from a FM table (for Truncate & Replace).
 
 	Args:
@@ -293,6 +331,7 @@ def _fetch_all_records(session, base_url, table_name, select_fields=None):
 		base_url: OData base URL
 		table_name: FM table name
 		select_fields: Optional $select string
+		http_timeout: Per-request timeout for OData (tuple or int)
 
 	Returns:
 		list of record dicts from OData
@@ -301,11 +340,18 @@ def _fetch_all_records(session, base_url, table_name, select_fields=None):
 	params = {}
 	if select_fields:
 		params["$select"] = select_fields
-	return _odata_get_all(session, url, params=params if params else None)
+	return _odata_get_all(session, url, params=params if params else None, timeout=http_timeout)
 
 
-def _fetch_fm_key_set(session, base_url, table_name, matching_keys,
-                      reverse_mapping, column_mapping):
+def _fetch_fm_key_set(
+	session,
+	base_url,
+	table_name,
+	matching_keys,
+	reverse_mapping,
+	column_mapping,
+	http_timeout=None,
+):
 	"""Fetch all matching key values from FileMaker via OData.
 
 	Only requests the key fields ($select) to minimise data transfer.
@@ -317,6 +363,7 @@ def _fetch_fm_key_set(session, base_url, table_name, matching_keys,
 		matching_keys: List of Frappe fieldnames used as matching keys
 		reverse_mapping: Dict mapping Frappe fieldnames → FM field names
 		column_mapping: Dict mapping FM field names → Frappe fieldname info
+		http_timeout: Per-request timeout for OData (tuple or int)
 
 	Returns:
 		set of key tuples (normalised to strings)
@@ -329,7 +376,9 @@ def _fetch_fm_key_set(session, base_url, table_name, matching_keys,
 
 	select_str = ",".join(fm_key_columns)
 	url = f"{base_url}/{table_name}"
-	rows = _odata_get_all(session, url, params={"$select": select_str})
+	rows = _odata_get_all(
+		session, url, params={"$select": select_str}, timeout=http_timeout
+	)
 
 	# Build set of normalised key tuples
 	fm_key_set = set()
@@ -341,9 +390,17 @@ def _fetch_fm_key_set(session, base_url, table_name, matching_keys,
 	return fm_key_set
 
 
-def _fetch_records_by_keys(session, base_url, table_name, matching_keys,
-                           reverse_mapping, column_mapping, key_set,
-                           select_fields=None):
+def _fetch_records_by_keys(
+	session,
+	base_url,
+	table_name,
+	matching_keys,
+	reverse_mapping,
+	column_mapping,
+	key_set,
+	select_fields=None,
+	http_timeout=None,
+):
 	"""Fetch full rows from FM for a specific set of matching-key tuples.
 
 	For single-column keys, builds batched OData $filter with 'or' chains.
@@ -358,6 +415,7 @@ def _fetch_records_by_keys(session, base_url, table_name, matching_keys,
 		column_mapping: Dict mapping FM field names → Frappe fieldname info
 		key_set: Set of key tuples to fetch
 		select_fields: Optional $select string
+		http_timeout: Per-request timeout for OData (tuple or int)
 
 	Returns:
 		list of record dicts from OData
@@ -395,7 +453,7 @@ def _fetch_records_by_keys(session, base_url, table_name, matching_keys,
 			params = {"$filter": filter_expr}
 			if select_fields:
 				params["$select"] = select_fields
-			rows.extend(_odata_get_all(session, url, params=params))
+			rows.extend(_odata_get_all(session, url, params=params, timeout=http_timeout))
 
 		return rows
 
@@ -403,7 +461,9 @@ def _fetch_records_by_keys(session, base_url, table_name, matching_keys,
 	params = {}
 	if select_fields:
 		params["$select"] = select_fields
-	all_rows = _odata_get_all(session, url, params=params if params else None)
+	all_rows = _odata_get_all(
+		session, url, params=params if params else None, timeout=http_timeout
+	)
 
 	result = []
 	for row in all_rows:
@@ -508,6 +568,7 @@ def sync_table(fm_table_doc):
 		frappe.throw(_("FileMaker Connection not configured"))
 
 	session, base_url = get_fm_session(fm_conn_doc)
+	http_timeout = odata_http_timeout(fm_conn_doc)
 
 	# Determine sync method
 	sync_method = fm_table_doc.sync_method or "TS Compare"
@@ -518,12 +579,23 @@ def sync_table(fm_table_doc):
 	try:
 		if sync_method == "Truncate & Replace":
 			result = _sync_truncate_replace(
-				session, base_url, fm_table_doc, fm_conn_doc, fm_table_doc.frappe_doctype
+				session,
+				base_url,
+				fm_table_doc,
+				fm_conn_doc,
+				fm_table_doc.frappe_doctype,
+				http_timeout=http_timeout,
 			)
 		else:
 			# Default to TS Compare
 			result = _sync_ts_compare(
-				session, base_url, fm_table_doc, fm_conn_doc, fm_table_doc.frappe_doctype, ts_field
+				session,
+				base_url,
+				fm_table_doc,
+				fm_conn_doc,
+				fm_table_doc.frappe_doctype,
+				ts_field,
+				http_timeout=http_timeout,
 			)
 
 	finally:
@@ -684,7 +756,15 @@ def _publish_sync_progress(table_name, rows_processed, total_rows, user=None):
 # =============================================================================
 
 
-def _sync_ts_compare(session, base_url, fm_table_doc, fm_conn_doc, frappe_doctype, ts_field):
+def _sync_ts_compare(
+	session,
+	base_url,
+	fm_table_doc,
+	fm_conn_doc,
+	frappe_doctype,
+	ts_field,
+	http_timeout=None,
+):
 	"""
 	Sync using timestamp comparison method.
 
@@ -700,10 +780,13 @@ def _sync_ts_compare(session, base_url, fm_table_doc, fm_conn_doc, frappe_doctyp
 		fm_conn_doc: FileMaker Connection document
 		frappe_doctype: Name of the Frappe DocType
 		ts_field: FM timestamp field name for comparison
+		http_timeout: ``(connect, read)`` timeout for each OData request
 
 	Returns:
 		dict with sync results
 	"""
+	if http_timeout is None:
+		http_timeout = odata_http_timeout(fm_conn_doc)
 	table_name = fm_table_doc.table_name
 	matching_keys = _get_matching_keys(fm_table_doc)
 	sync_user = getattr(fm_table_doc, "_sync_user", None)
@@ -721,7 +804,13 @@ def _sync_ts_compare(session, base_url, fm_table_doc, fm_conn_doc, frappe_doctyp
 
 	# Step 1: Delete detection — get all matching keys from FM and delete orphans.
 	fm_key_set = _fetch_fm_key_set(
-		session, base_url, table_name, matching_keys, reverse_mapping, column_mapping
+		session,
+		base_url,
+		table_name,
+		matching_keys,
+		reverse_mapping,
+		column_mapping,
+		http_timeout=http_timeout,
 	)
 	rows_deleted, frappe_key_set = _delete_orphans(frappe_doctype, matching_keys, fm_key_set)
 
@@ -747,9 +836,14 @@ def _sync_ts_compare(session, base_url, fm_table_doc, fm_conn_doc, frappe_doctyp
 		cutoff_odata = cutoff_aware
 
 	changed_rows = _fetch_changed_records(
-		session, base_url, table_name, ts_field,
-		fm_table_doc.created_timestamp_field, cutoff_odata,
+		session,
+		base_url,
+		table_name,
+		ts_field,
+		fm_table_doc.created_timestamp_field,
+		cutoff_odata,
 		select_fields=select_fields,
+		http_timeout=http_timeout,
 	)
 
 	# Build set of keys already covered by the TS-changed fetch so we
@@ -764,8 +858,15 @@ def _sync_ts_compare(session, base_url, fm_table_doc, fm_conn_doc, frappe_doctyp
 	# (these have old timestamps but were never synced into Frappe)
 	missing_keys_only = missing_keys - changed_keys
 	missing_rows = _fetch_records_by_keys(
-		session, base_url, table_name, matching_keys, reverse_mapping,
-		column_mapping, missing_keys_only, select_fields=select_fields,
+		session,
+		base_url,
+		table_name,
+		matching_keys,
+		reverse_mapping,
+		column_mapping,
+		missing_keys_only,
+		select_fields=select_fields,
+		http_timeout=http_timeout,
 	)
 
 	total_to_sync = len(changed_rows) + len(missing_rows)
@@ -830,7 +931,9 @@ def _sync_ts_compare(session, base_url, fm_table_doc, fm_conn_doc, frappe_doctyp
 	}
 
 
-def _sync_truncate_replace(session, base_url, fm_table_doc, fm_conn_doc, frappe_doctype):
+def _sync_truncate_replace(
+	session, base_url, fm_table_doc, fm_conn_doc, frappe_doctype, http_timeout=None
+):
 	"""
 	Sync using truncate and replace method.
 
@@ -842,10 +945,13 @@ def _sync_truncate_replace(session, base_url, fm_table_doc, fm_conn_doc, frappe_
 		fm_table_doc: FM Tables document
 		fm_conn_doc: FileMaker Connection document
 		frappe_doctype: Name of the Frappe DocType
+		http_timeout: ``(connect, read)`` timeout for each OData request
 
 	Returns:
 		dict with sync results
 	"""
+	if http_timeout is None:
+		http_timeout = odata_http_timeout(fm_conn_doc)
 	table_name = fm_table_doc.table_name
 
 	# Load column mapping (FM field name -> {fieldname, ...})
@@ -861,7 +967,13 @@ def _sync_truncate_replace(session, base_url, fm_table_doc, fm_conn_doc, frappe_
 	frappe.db.commit()
 
 	# Step 2: Fetch all records from FM via OData (paginated)
-	all_rows = _fetch_all_records(session, base_url, table_name, select_fields=select_fields)
+	all_rows = _fetch_all_records(
+		session,
+		base_url,
+		table_name,
+		select_fields=select_fields,
+		http_timeout=http_timeout,
+	)
 	total_to_sync = len(all_rows)
 
 	# Step 3: Insert all rows in batches (with in_sync flag to prevent live push-back)

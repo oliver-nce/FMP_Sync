@@ -138,49 +138,41 @@ def _fetch_fm_schema(session, base_url):
 	table_names = _ordered_unique_table_names(user_rows)
 
 	# One unfiltered GET for FileMaker_BaseTableFields can exceed what the path delivers
-	# (IncompleteRead). FileMaker may also ignore $top for this entity set. Fetch fields
-	# per base table with $filter so each response stays small.
+	# (IncompleteRead). Fetch fields per base table with $filter; merge each response's
+	# ``value`` rows into ``field_rows`` (one OData round-trip per table, small bodies).
 	field_rows = []
-	group_by_base = False
+	group_by_base = True
 	if not base_names:
-		group_by_base = True
+		pass
 	else:
-		probe = _fm_odata_follow_pages(
-			session,
-			fields_url_bt,
-			{
-				**field_params_bt,
-				"$filter": f"BaseTableName eq {_odata_string_literal(base_names[0])}",
-			},
-			page_size=None,
-		)
-		if probe is None:
-			group_by_base = False
-			for tn in table_names:
-				part = _fm_odata_follow_pages_required(
-					session,
-					fields_url_f,
-					{
-						**field_params_f,
-						"$filter": f"TableName eq {_odata_string_literal(tn)}",
-					},
-					page_size=None,
-				)
-				field_rows.extend(part)
-		else:
-			group_by_base = True
-			field_rows = list(probe)
-			for bn in base_names[1:]:
-				part = _fm_odata_follow_pages_required(
-					session,
-					fields_url_bt,
-					{
-						**field_params_bt,
-						"$filter": f"BaseTableName eq {_odata_string_literal(bn)}",
-					},
-					page_size=None,
-				)
-				field_rows.extend(part)
+		for i, bn in enumerate(base_names):
+			part = _fm_odata_follow_pages(
+				session,
+				fields_url_bt,
+				{
+					**field_params_bt,
+					"$filter": f"BaseTableName eq {_odata_string_literal(bn)}",
+				},
+				page_size=None,
+			)
+			if part is None:
+				if i == 0:
+					group_by_base = False
+					field_rows = []
+					for tn in table_names:
+						chunk = _fm_odata_follow_pages_required(
+							session,
+							fields_url_f,
+							{
+								**field_params_f,
+								"$filter": f"TableName eq {_odata_string_literal(tn)}",
+							},
+							page_size=None,
+						)
+						field_rows.extend(chunk)
+					break
+				frappe.throw(_("OData resource not found (404): {0}").format(fields_url_bt))
+			field_rows.extend(part)
 
 	fields_by_base = {}
 	fields_by_table = {}

@@ -31,6 +31,7 @@
     "column_mapping",
     "name_field_column",
     "auto_generated_columns",
+    "user_skipped_columns",
     "skipped_fields",
     "stored_calc_fields",
     "external_config_section",
@@ -221,6 +222,14 @@
       "read_only": 1,
       "hidden": 1,
       "description": "Comma-separated FM fields that are auto-generated (e.g. auto_increment) - skipped when writing records back to source"
+    },
+    {
+      "fieldname": "user_skipped_columns",
+      "fieldtype": "Small Text",
+      "label": "User Skipped Columns",
+      "read_only": 1,
+      "hidden": 1,
+      "description": "Comma-separated FM column names excluded from mirror/sync (chosen in the mapping dialog)"
     },
     {
       "fieldname": "skipped_fields",

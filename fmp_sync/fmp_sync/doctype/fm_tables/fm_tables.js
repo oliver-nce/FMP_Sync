@@ -320,8 +320,14 @@ frappe.ui.form.on("FM Tables", {
 
 function show_preview_dialog(frm, preview_data, mode, new_table_name) {
 	mode = mode || "mirror";
-	let fields = preview_data.fields;
+	let fields = preview_data.fields.slice();
+	fields.sort(function (a, b) {
+		return String(a.column_name).localeCompare(String(b.column_name), undefined, {
+			sensitivity: "base",
+		});
+	});
 	let doctype_name = preview_data.doctype_name;
+	let previous_user_skipped = preview_data.previous_user_skipped_columns || [];
 	let previous_matching = preview_data.previous_matching_fields || [];
 	let previous_name_column = preview_data.previous_name_field_column || null;
 
@@ -342,22 +348,26 @@ function show_preview_dialog(frm, preview_data, mode, new_table_name) {
 		],
 		primary_action_label: action_label,
 		primary_action: function () {
-			// Collect field type overrides
+			// Collect field type overrides (skip rows marked Skip)
 			let field_overrides = {};
 			d.$wrapper.find(".field-type-select").each(function () {
+				if ($(this).prop("disabled")) {
+					return;
+				}
 				let col_name = $(this).data("column");
 				let selected = $(this).val();
-				// Always send all field types (user may have confirmed defaults)
 				field_overrides[col_name] = selected;
 			});
 
 			// Collect label overrides
 			let label_overrides = {};
 			d.$wrapper.find(".field-label-input").each(function () {
+				if ($(this).prop("disabled")) {
+					return;
+				}
 				let col_name = $(this).data("column");
 				let label = $(this).val().trim();
 				let original = $(this).data("original");
-				// Only send if changed from default
 				if (label && label !== original) {
 					label_overrides[col_name] = label;
 				}
@@ -382,9 +392,44 @@ function show_preview_dialog(frm, preview_data, mode, new_table_name) {
 			let modified_ts_field = d.$wrapper.find(".mod-ts-radio:checked").val() || "";
 			let created_ts_field = d.$wrapper.find(".crt-ts-radio:checked").val() || "";
 
+			let user_skipped = [];
+			d.$wrapper.find(".skip-field-checkbox:checked").each(function () {
+				user_skipped.push($(this).data("column"));
+			});
+			let skip_lower = new Set(user_skipped.map((c) => String(c).toLowerCase()));
+			function _col_skipped(col) {
+				return col && skip_lower.has(String(col).toLowerCase());
+			}
+			if (_col_skipped(modified_ts_field)) {
+				frappe.msgprint(__("The modified timestamp column cannot be skipped."));
+				return;
+			}
+			if (_col_skipped(created_ts_field)) {
+				frappe.msgprint(__("The created timestamp column cannot be skipped."));
+				return;
+			}
+			if (_col_skipped(name_field_column)) {
+				frappe.msgprint(__("The Frappe ID column cannot be skipped."));
+				return;
+			}
+			for (let mi = 0; mi < matching_fields.length; mi++) {
+				if (_col_skipped(matching_fields[mi])) {
+					frappe.msgprint(
+						__(
+							"Matching field '{0}' cannot be skipped. Uncheck Skip or change matching fields.",
+							[matching_fields[mi]],
+						),
+					);
+					return;
+				}
+			}
+
 			// Validate reserved column labels
 			let reserved_errors = [];
 			d.$wrapper.find(".field-label-input.reserved-source-col").each(function () {
+				if ($(this).prop("disabled")) {
+					return;
+				}
 				let col_name = $(this).data("column");
 				let label = $(this).val().trim();
 				let scrubbed = _scrub_fieldname(label);
@@ -437,6 +482,8 @@ function show_preview_dialog(frm, preview_data, mode, new_table_name) {
 				auto_generated_columns: auto_generated_columns.join(",") || undefined,
 				modified_ts_field: modified_ts_field || undefined,
 				created_ts_field: created_ts_field || undefined,
+				user_skipped_columns:
+					user_skipped.length > 0 ? user_skipped.join(",") : undefined,
 			};
 			if (mode === "remap" && new_table_name && new_table_name !== frm.doc.table_name) {
 				call_args.new_table_name = new_table_name;
@@ -453,8 +500,7 @@ function show_preview_dialog(frm, preview_data, mode, new_table_name) {
 					frm.reload_doc();
 				},
 				error: function (r) {
-					// Re-enable button so the user can retry after fixing the issue
-					d.get_primary_btn().prop("disabled", false).text(__("Confirm & Create"));
+					d.get_primary_btn().prop("disabled", false).text(action_label);
 				},
 			});
 		},
@@ -482,11 +528,18 @@ function show_preview_dialog(frm, preview_data, mode, new_table_name) {
 		<span class="text-muted"><strong>${__("Mod TS / Created TS:")}</strong> ${__(
 			"Pick the modified-timestamp field (required) and optionally the created-timestamp field. Only datetime/timestamp columns are selectable.",
 		)}</span>
+		<br>
+		<span class="text-muted"><strong>${__("Skip:")}</strong> ${__(
+			"Exclude a column from the Frappe DocType and from FM→Frappe sync (OData $select). You cannot skip columns used as Frappe ID, matching fields, or modified timestamp.",
+		)}</span>
 		</div>
 		<div style="max-height: 500px; overflow-y: auto;">
 			<table class="table table-bordered table-sm" style="font-size: 13px;">
 				<thead style="position: sticky; top: 0; background: var(--fg-color, #fff); z-index: 1;">
 					<tr>
+						<th style="width: 4%;" title="${__(
+							"Exclude from DocType and sync",
+						)}">${__("Skip")}</th>
 						<th style="width: 4%;">${__("Match")}</th>
 						<th style="width: 4%;" title="${__("Map this column directly to Frappe\'s record ID (name field)")}">${__("Frappe ID")}</th>
 						<th style="width: 4%;">${__("Auto")}</th>
@@ -553,6 +606,9 @@ function show_preview_dialog(frm, preview_data, mode, new_table_name) {
 			auto_checked = "checked";
 		}
 
+		let skip_checked =
+			previous_user_skipped.indexOf(f.column_name.toLowerCase()) >= 0 ? "checked" : "";
+
 		// Timestamp radio buttons — only enabled for datetime/timestamp columns
 		let is_datetime = ["datetime", "timestamp", "Datetime"].some((t) =>
 			f.db_type.toLowerCase().includes(t.toLowerCase()),
@@ -608,6 +664,10 @@ function show_preview_dialog(frm, preview_data, mode, new_table_name) {
 		html += `
 			<tr ${row_class}>
 				<td style="text-align: center;">
+					<input type="checkbox" class="skip-field-checkbox"
+						data-column="${f.column_name}" ${skip_checked}>
+				</td>
+				<td style="text-align: center;">
 					<input type="checkbox" class="matching-field-checkbox"
 						data-column="${f.column_name}" ${checked}>
 				</td>
@@ -651,25 +711,44 @@ function show_preview_dialog(frm, preview_data, mode, new_table_name) {
 
 	d.fields_dict.field_preview.$wrapper.html(html);
 
-	// When "Frappe ID" radio is selected:
-	//  • Disable all Match checkboxes (the ID column IS the sole match key)
-	//  • Grey out the Frappe Type dropdown for that row (type is irrelevant — no field created)
+	function refresh_skip_row_state($cb) {
+		const row = $cb.closest("tr");
+		const skip = $cb.is(":checked");
+		row.find(".matching-field-checkbox, .auto-generated-checkbox").prop("disabled", skip);
+		row.find(".name-field-radio, .mod-ts-radio, .crt-ts-radio").prop("disabled", skip);
+		row.find(".field-type-select, .field-label-input").prop("disabled", skip);
+		row.css("opacity", skip ? "0.75" : "");
+		if (skip) {
+			row.find(".matching-field-checkbox").prop("checked", false);
+			row.find(".auto-generated-checkbox").prop("checked", false);
+			row.find(".name-field-radio").prop("checked", false);
+			row.find(".mod-ts-radio").prop("checked", false);
+			row.find(".crt-ts-radio").prop("checked", false);
+		}
+	}
+
+	// When "Frappe ID" radio is selected: grey out Frappe Type on the ID column (no separate field).
+	// Rows marked Skip stay disabled.
 	function _refresh_frappe_id_state() {
 		let $checked_radio = d.$wrapper.find(".name-field-radio:checked");
 		let name_selected = $checked_radio.length > 0;
 		let id_col = name_selected ? $checked_radio.val() : null;
 
-		// Match checkboxes — always enabled, even when Frappe ID is selected
-		// (user may need a separate match key, e.g. auto-increment PK for FM push-back)
 		d.$wrapper.find(".matching-field-checkbox").each(function () {
-			let $cb = $(this);
-			$cb.prop("disabled", false);
+			let skip = $(this).closest("tr").find(".skip-field-checkbox").is(":checked");
+			$(this).prop("disabled", skip);
 		});
 
-		// Frappe Type dropdowns — disable + grey out only the selected ID column
-		// Also force its value to "Data" (Frappe name is always varchar)
 		d.$wrapper.find(".field-type-select").each(function () {
 			let col = $(this).data("column");
+			let skip = $(this).closest("tr").find(".skip-field-checkbox").is(":checked");
+			if (skip) {
+				$(this)
+					.prop("disabled", true)
+					.css({ opacity: "0.45", "pointer-events": "none" })
+					.removeAttr("title");
+				return;
+			}
 			if (id_col && col === id_col) {
 				$(this)
 					.val("Data")
@@ -686,14 +765,20 @@ function show_preview_dialog(frm, preview_data, mode, new_table_name) {
 					.prop("disabled", false)
 					.css({ opacity: "", "pointer-events": "" })
 					.removeAttr("title")
-					// Restore original proposed type when deselected
 					.val($(this).data("original"));
 			}
 		});
 	}
 
+	d.$wrapper.on("change", ".skip-field-checkbox", function () {
+		refresh_skip_row_state($(this));
+		_refresh_frappe_id_state();
+	});
+	d.$wrapper.find(".skip-field-checkbox").each(function () {
+		refresh_skip_row_state($(this));
+	});
+
 	d.$wrapper.on("change", ".name-field-radio", _refresh_frappe_id_state);
-	// Trigger on load if Frappe ID was pre-selected
 	_refresh_frappe_id_state();
 
 	// Limit matching field selection to 3

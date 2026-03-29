@@ -609,6 +609,53 @@ def build_frappe_field(col, schema, fm_table_doc, field_overrides=None, label_ov
 
 
 # ---------------------------------------------------------------------------
+# User-skipped columns (mapping dialog)
+# ---------------------------------------------------------------------------
+
+
+def _parse_user_skipped_columns(raw):
+	if not raw:
+		return []
+	if isinstance(raw, str):
+		return [x.strip() for x in raw.split(",") if x.strip()]
+	return [str(x).strip() for x in raw if str(x).strip()]
+
+
+def _filter_schema_columns_for_user_skips(
+	schema,
+	user_skipped_columns,
+	*,
+	name_field_column=None,
+	modified_ts_field=None,
+	created_ts_field=None,
+	matching_fields_list=None,
+):
+	"""Return a copy of schema with listed FM columns removed; validate required roles."""
+	us = _parse_user_skipped_columns(user_skipped_columns)
+	if not us:
+		return schema
+	skip_lower = {x.lower() for x in us}
+	mf_list = matching_fields_list or []
+
+	for label, val in (
+		(_("Frappe ID / name field"), name_field_column),
+		(_("Modified timestamp field"), modified_ts_field),
+		(_("Created timestamp field"), created_ts_field),
+	):
+		if val and val.lower() in skip_lower:
+			frappe.throw(_("Cannot skip column '{0}': it is selected as {1}.").format(val, label))
+	for mf in mf_list:
+		if mf.lower() in skip_lower:
+			frappe.throw(_("Cannot skip column '{0}': it is used as a matching field.").format(mf))
+
+	out = dict(schema)
+	out["columns"] = [c for c in schema["columns"] if c["COLUMN_NAME"].lower() not in skip_lower]
+	if out.get("primary_key"):
+		out["primary_key"] = [pk for pk in out["primary_key"] if pk.lower() not in skip_lower]
+	return out
+
+
+# ---------------------------------------------------------------------------
 # Preview  (uses fm_schema cache)
 # ---------------------------------------------------------------------------
 
@@ -688,6 +735,11 @@ def preview_table_schema(fm_conn_doc, fm_table_doc):
 			"options": field_mapping.get("options", ""),
 		})
 
+	preview.sort(key=lambda r: (r["column_name"] or "").lower())
+
+	prev_skip_raw = getattr(fm_table_doc, "user_skipped_columns", None) or ""
+	previous_user_skipped = [x.strip().lower() for x in prev_skip_raw.split(",") if x.strip()]
+
 	return {
 		"fields": preview,
 		"timestamps": timestamps,
@@ -697,6 +749,7 @@ def preview_table_schema(fm_conn_doc, fm_table_doc):
 		"previous_auto_generated_columns": previous_auto_gen,
 		"previous_modified_ts": getattr(fm_table_doc, "modified_timestamp_field", None) or "",
 		"previous_created_ts": getattr(fm_table_doc, "created_timestamp_field", None) or "",
+		"previous_user_skipped_columns": previous_user_skipped,
 		"skipped_fields": schema.get("skipped", []),
 	}
 
@@ -709,7 +762,7 @@ def preview_table_schema(fm_conn_doc, fm_table_doc):
 def mirror_table_schema(
 	fm_conn_doc, fm_table_doc, field_overrides=None, label_overrides=None,
 	name_field_column=None, auto_generated_columns=None,
-	modified_ts_field=None, created_ts_field=None
+	modified_ts_field=None, created_ts_field=None, user_skipped_columns=None,
 ):
 	"""Mirror a FileMaker table schema to a Frappe Custom DocType.
 
@@ -722,12 +775,23 @@ def mirror_table_schema(
 		auto_generated_columns: List of FM field names that are auto-generated
 		modified_ts_field: FM field name for modification timestamp
 		created_ts_field: FM field name for creation timestamp
+		user_skipped_columns: Comma-separated FM column names (or list) to exclude from mirror/sync
 	"""
 	try:
 		session_tuple = get_fm_session(fm_conn_doc)
 		table_name = fm_table_doc.table_name
 
 		schema = get_table_schema(session_tuple, table_name, fm_conn_doc=fm_conn_doc)
+
+		matching_list = get_matching_fields_list(fm_table_doc)
+		schema = _filter_schema_columns_for_user_skips(
+			schema,
+			user_skipped_columns,
+			name_field_column=name_field_column,
+			modified_ts_field=modified_ts_field,
+			created_ts_field=created_ts_field,
+			matching_fields_list=matching_list,
+		)
 
 		# Auto-detect timestamp fields if not already set by user
 		if not fm_table_doc.created_timestamp_field or not fm_table_doc.modified_timestamp_field:
@@ -815,6 +879,10 @@ def mirror_table_schema(
 		fm_table_doc.column_mapping = json.dumps(column_mapping)
 		fm_table_doc.name_field_column = name_field_column or None
 		fm_table_doc.auto_generated_columns = stored_auto_gen or None
+
+		us_list = _parse_user_skipped_columns(user_skipped_columns)
+		if hasattr(fm_table_doc, "user_skipped_columns"):
+			fm_table_doc.user_skipped_columns = ",".join(sorted(us_list, key=str.lower)) if us_list else None
 
 		# Store skipped fields as JSON (new field on FM Tables doctype)
 		if hasattr(fm_table_doc, "skipped_fields"):

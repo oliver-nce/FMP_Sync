@@ -276,6 +276,7 @@ class FMTables(Document):
 		auto_generated_columns=None,
 		modified_ts_field=None,
 		created_ts_field=None,
+		user_skipped_columns=None,
 	):
 		"""Mirror this specific table's schema to a Frappe DocType."""
 		try:
@@ -310,6 +311,7 @@ class FMTables(Document):
 				auto_generated_columns=auto_generated_columns or None,
 				modified_ts_field=modified_ts_field or None,
 				created_ts_field=created_ts_field or None,
+				user_skipped_columns=user_skipped_columns or None,
 			)
 
 			frappe.msgprint(
@@ -414,8 +416,17 @@ class FMTables(Document):
 		stored_calcs = []
 		name_field_column = getattr(self, "name_field_column", None)
 
+		user_skip_lower = set()
+		skip_raw = getattr(self, "user_skipped_columns", None) or ""
+		for part in skip_raw.split(","):
+			p = part.strip()
+			if p:
+				user_skip_lower.add(p.lower())
+
 		for col in schema["columns"]:
 			fm_col_name = col["COLUMN_NAME"]
+			if fm_col_name.lower() in user_skip_lower:
+				continue
 			classification = classify_field(col)
 
 			if classification != "include":
@@ -485,6 +496,7 @@ class FMTables(Document):
 		auto_generated_columns=None,
 		modified_ts_field=None,
 		created_ts_field=None,
+		user_skipped_columns=None,
 	):
 		"""
 		Remap an existing mirrored DocType to a (possibly renamed) source table.
@@ -531,6 +543,7 @@ class FMTables(Document):
 			auto_generated_columns=auto_generated_columns or None,
 			modified_ts_field=modified_ts_field or None,
 			created_ts_field=created_ts_field or None,
+			user_skipped_columns=user_skipped_columns or None,
 		)
 
 		# Reset sync status

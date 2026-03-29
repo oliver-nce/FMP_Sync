@@ -11,6 +11,7 @@ Provides test_connection (GET service document) and discover_tables
 
 import json
 import time
+from urllib.parse import quote, urlencode
 
 import frappe
 import requests
@@ -23,6 +24,14 @@ from fmp_sync.utils.schema_mirror import _fm_field_class_computed, _fm_fieldtype
 FM_SCHEMA_ODATA_PAGE_TOP = 2000
 FM_ODATA_GET_RETRIES = 3
 FM_ODATA_RETRY_BASE_DELAY = 1.0
+
+
+def _fm_odata_url(url, params=None):
+	"""Build ``url?query`` for OData. FileMaker rejects ``+`` as space encoding; use ``%20``."""
+	if not params:
+		return url
+	qs = urlencode(params, quote_via=quote)
+	return f"{url}?{qs}"
 
 
 def _fm_session_get_with_retries(session, url, params=None, timeout=30):
@@ -58,8 +67,9 @@ def _fm_odata_follow_pages(session, url, params=None, page_size=FM_SCHEMA_ODATA_
 	p = dict(params or {})
 	if page_size is not None:
 		p["$top"] = str(int(page_size))
-	resp = _fm_session_get_with_retries(session, url, params=p, timeout=30)
-	data = _fm_odata_apply_status(resp, url, allow_404=True)
+	req_url = _fm_odata_url(url, p)
+	resp = _fm_session_get_with_retries(session, req_url, params=None, timeout=30)
+	data = _fm_odata_apply_status(resp, req_url, allow_404=True)
 	if data is None:
 		return None
 	rows = list(data.get("value", []))

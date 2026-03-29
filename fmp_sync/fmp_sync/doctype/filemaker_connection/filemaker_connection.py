@@ -9,6 +9,8 @@ Provides test_connection (GET service document) and discover_tables
 (GET FileMaker_Tables, filter to base tables).
 """
 
+import json
+
 import frappe
 import requests
 from frappe import _
@@ -130,6 +132,25 @@ def _fetch_fm_schema(session, base_url):
 
 class FileMakerConnection(Document):
 	"""Single DocType to manage FileMaker Server OData connection."""
+
+	def onload(self):
+		"""Normalize schema-cache fields for Desk (read-only + empty = hidden in Frappe).
+
+		These assignments only affect the document sent to the browser for this request;
+		they do not save to the database.
+		"""
+		if self.fm_schema is None or self.fm_schema == "":
+			self.fm_schema = {}
+		elif isinstance(self.fm_schema, str):
+			try:
+				self.fm_schema = json.loads(self.fm_schema)
+			except Exception:
+				self.fm_schema = {}
+
+		raw = self.get("fm_schema_fetched_at")
+		placeholder = _("Not cached yet")
+		if raw is None or (isinstance(raw, str) and not str(raw).strip()):
+			self.fm_schema_fetched_at = placeholder
 
 	def get_odata_base_url(self):
 		"""Build the OData base URL from connection settings.
@@ -274,7 +295,7 @@ class FileMakerConnection(Document):
 			session.close()
 		# Assign dict — Frappe JSON field stores it correctly (avoid double-encoded strings).
 		self.fm_schema = result
-		self.fm_schema_fetched_at = frappe.utils.now_datetime()
+		self.fm_schema_fetched_at = frappe.utils.format_datetime(frappe.utils.now_datetime())
 		self.save()
 		table_count = len(result.get("tables", []))
 		field_count = sum(len(t["fields"]) for t in result.get("tables", []))

@@ -142,15 +142,16 @@
   },
   {
    "fieldname": "fm_schema_fetched_at",
-   "fieldtype": "Datetime",
+   "fieldtype": "Data",
    "label": "Schema Fetched At",
-   "read_only": 1
+   "read_only": 1,
+   "description": "Set when you use Refresh Schema Cache or Discover Tables. Shows “Not cached yet” until then."
   }
  ],
  "index_web_pages_for_search": 1,
  "issingle": 1,
  "links": [],
- "modified": "2026-03-29 20:00:00.000000",
+ "modified": "2026-03-30 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "FMP Sync",
  "name": "FileMaker Connection",

@@ -3,9 +3,22 @@
 
 frappe.ui.form.on("FileMaker Connection", {
 	refresh: function (frm) {
-		// Frappe can hide empty read-only fields on Single DocTypes; keep Schema Cache visible.
-		frm.toggle_display("fm_schema", true);
-		frm.toggle_display("fm_schema_fetched_at", true);
+		// Belt-and-suspenders: Desk hides read-only fields when value is empty (base_control.js).
+		// Server onload normally fills these; normalize if the loaded doc is still empty.
+		const dt = frm.doctype;
+		const dn = frm.doc.name;
+		// Do not use frappe.model.is_empty({}) — true for {}, which would dirty the form every refresh.
+		const sch = frm.doc.fm_schema;
+		if (sch === undefined || sch === null || sch === "") {
+			frappe.model.set_value(dt, dn, "fm_schema", {});
+		} else if (typeof sch === "string" && !sch.trim()) {
+			frappe.model.set_value(dt, dn, "fm_schema", {});
+		}
+		const fat = frm.doc.fm_schema_fetched_at;
+		const ph = __("Not cached yet");
+		if (fat === undefined || fat === null || String(fat).trim() === "") {
+			frappe.model.set_value(dt, dn, "fm_schema_fetched_at", ph);
+		}
 
 		// Test Connection button
 		frm.add_custom_button(__("Test Connection"), function () {
@@ -128,10 +141,12 @@ function show_discovery_dialog(frm, tables_and_views) {
 			);
 
 			let cache_note = "";
-			if (frm.doc.fm_schema_fetched_at) {
+			const fetchedAt = frm.doc.fm_schema_fetched_at;
+			const notCached = __("Not cached yet");
+			if (fetchedAt && String(fetchedAt).trim() && fetchedAt !== notCached) {
 				cache_note = `<p class="text-muted small" style="margin-bottom: 12px;">${__(
 					"Schema cached at {0} — click Refresh Schema Cache to update.",
-					[frappe.datetime.str_to_user(frm.doc.fm_schema_fetched_at)]
+					[frappe.datetime.str_to_user(fetchedAt)]
 				)}</p>`;
 			}
 

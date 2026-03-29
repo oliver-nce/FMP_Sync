@@ -42,6 +42,28 @@ function _scrub_fieldname(label) {
 		.replace(/[^a-z0-9_]/g, "");
 }
 
+/** Match server normalize_frappe_fieldname_fragment for editable Frappe fieldnames. */
+function _normalize_fmp_fieldname_input(s) {
+	return String(s || "")
+		.trim()
+		.toLowerCase()
+		.replace(/[^a-z0-9_]/g, "")
+		.replace(/_+/g, "_")
+		.replace(/^_|_$/g, "");
+}
+
+function _label_from_fmp_fieldname(fn) {
+	const n = _normalize_fmp_fieldname_input(fn);
+	if (!n) {
+		return "";
+	}
+	return n
+		.split("_")
+		.filter(Boolean)
+		.map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+		.join(" ");
+}
+
 frappe.ui.form.on("FM Tables", {
 	after_save: function (frm) {
 		let desired = (
@@ -359,16 +381,57 @@ function show_preview_dialog(frm, preview_data, mode, new_table_name) {
 				field_overrides[col_name] = selected;
 			});
 
-			// Collect label overrides
+			let fieldname_overrides = {};
+			let fn_collect_ok = true;
+			d.$wrapper.find(".field-name-input").each(function () {
+				const row = $(this).closest("tr");
+				if (row.find(".skip-field-checkbox").is(":checked")) {
+					return;
+				}
+				if ($(this).prop("disabled")) {
+					return;
+				}
+				const col_name = $(this).data("column");
+				const fn = _normalize_fmp_fieldname_input($(this).val());
+				if (!fn) {
+					fn_collect_ok = false;
+					frappe.msgprint(__("Field name cannot be empty (column {0}).", [col_name]));
+					return false;
+				}
+				fieldname_overrides[col_name] = fn;
+			});
+			if (!fn_collect_ok) {
+				return;
+			}
+			let seenFn = Object.create(null);
+			for (const col of Object.keys(fieldname_overrides)) {
+				const v = fieldname_overrides[col];
+				if (seenFn[v]) {
+					frappe.msgprint(
+						__("Duplicate Frappe field names: {0}. Change one of them.", [v]),
+					);
+					return;
+				}
+				seenFn[v] = col;
+			}
+
+			// Label overrides only when different from auto title-case of Field name
 			let label_overrides = {};
 			d.$wrapper.find(".field-label-input").each(function () {
 				if ($(this).prop("disabled")) {
 					return;
 				}
-				let col_name = $(this).data("column");
-				let label = $(this).val().trim();
-				let original = $(this).data("original");
-				if (label && label !== original) {
+				const row = $(this).closest("tr");
+				if (row.find(".skip-field-checkbox").is(":checked")) {
+					return;
+				}
+				const col_name = $(this).data("column");
+				const label = $(this).val().trim();
+				const fnRaw = row.find(".field-name-input").val();
+				const autoLabel = _label_from_fmp_fieldname(fnRaw);
+				if (label && autoLabel && label !== autoLabel) {
+					label_overrides[col_name] = label;
+				} else if (label && !autoLabel) {
 					label_overrides[col_name] = label;
 				}
 			});
@@ -477,6 +540,7 @@ function show_preview_dialog(frm, preview_data, mode, new_table_name) {
 			let call_args = {
 				field_overrides: JSON.stringify(field_overrides),
 				label_overrides: JSON.stringify(label_overrides),
+				fieldname_overrides: JSON.stringify(fieldname_overrides),
 				matching_fields: matching_fields.join(","),
 				name_field_column: name_field_column || undefined,
 				auto_generated_columns: auto_generated_columns.join(",") || undefined,
@@ -532,6 +596,14 @@ function show_preview_dialog(frm, preview_data, mode, new_table_name) {
 		<span class="text-muted"><strong>${__("Skip:")}</strong> ${__(
 			"Exclude a column from the Frappe DocType and from FM→Frappe sync (OData $select). You cannot skip columns used as Frappe ID, matching fields, or modified timestamp.",
 		)}</span>
+		<div class="fmp-skip-toolbar" style="margin: 8px 0 4px 0; display: flex; flex-wrap: wrap; align-items: center; gap: 8px;">
+			<span style="font-weight: 600; color: var(--text-color, inherit);">${__("Skip column checkboxes:")}</span>
+			<button type="button" class="btn btn-xs btn-primary fmp-skip-all">${__("Select all")}</button>
+			<button type="button" class="btn btn-xs btn-default fmp-skip-none">${__("Select none")}</button>
+		</div>
+		<p class="text-muted small" style="margin: 0 0 8px 0;">${__(
+			"Tip: Scroll the table horizontally if you do not see Field name or Label.",
+		)}</p>
 		<p style="margin: 10px 0 0 0;">
 			<strong>${__("All strings → Data?")}</strong>
 			<label class="small" style="margin-left: 10px; font-weight: normal;">
@@ -545,24 +617,41 @@ function show_preview_dialog(frm, preview_data, mode, new_table_name) {
 			)}</span>
 		</p>
 		</div>
-		<div class="fmp-schema-preview-scroll" style="min-height: 220px; max-height: min(75vh, 900px); overflow-y: auto;">
-			<table class="table table-bordered table-sm" style="font-size: 13px;">
-				<thead style="position: sticky; top: 0; background: var(--fg-color, #fff); z-index: 1;">
+		<div class="fmp-schema-preview-scroll" style="min-height: 220px; max-height: min(75vh, 900px); overflow: auto; width: 100%;">
+			<style>
+				.fmp-schema-preview-table { table-layout: auto; width: max-content; min-width: 100%; font-size: 13px; }
+				.fmp-schema-preview-table thead th {
+					vertical-align: top;
+					white-space: nowrap;
+					background: var(--fg-color, #fff);
+				}
+				.fmp-schema-preview-table .fmp-skip-th-btns { white-space: normal; min-width: 5.5rem; }
+				.fmp-schema-preview-table .fmp-skip-th-btns .btn { display: block; width: 100%; margin-top: 4px; font-weight: 600; }
+			</style>
+			<table class="table table-bordered table-sm fmp-schema-preview-table">
+				<thead style="position: sticky; top: 0; z-index: 2; box-shadow: 0 1px 0 var(--border-color, #ddd);">
 					<tr>
-						<th style="width: 4%;" title="${__(
+						<th class="fmp-skip-th-btns" title="${__(
 							"Exclude from DocType and sync",
-						)}">${__("Skip")}</th>
-						<th style="width: 4%;">${__("Match")}</th>
-						<th style="width: 4%;" title="${__("Map this column directly to Frappe\'s record ID (name field)")}">${__("Frappe ID")}</th>
-						<th style="width: 4%;">${__("Auto")}</th>
-						<th style="width: 5%;" title="${__("Modified timestamp — required")}"><span style="color:#d44;">${__("Mod TS")}</span></th>
-						<th style="width: 5%;" title="${__("Created timestamp — optional")}">${__("Crt TS")}</th>
-						<th style="width: 13%;">${__("Column")}</th>
-						<th style="width: 11%;">${__("DB Type")}</th>
-						<th style="width: 15%;">${__("Frappe Type")}</th>
-						<th style="width: 6%;">${__("Nullable")}</th>
-						<th style="width: 13%;">${__("Keys")}</th>
-						<th style="width: 20%;">${__("Label")}</th>
+						)}">
+							${__("Skip")}
+							<button type="button" class="btn btn-xs btn-primary fmp-skip-all">${__("All")}</button>
+							<button type="button" class="btn btn-xs btn-default fmp-skip-none">${__("None")}</button>
+						</th>
+						<th>${__("Match")}</th>
+						<th title="${__("Map this column directly to Frappe\'s record ID (name field)")}">${__("Frappe ID")}</th>
+						<th>${__("Auto")}</th>
+						<th title="${__("Modified timestamp — required")}"><span style="color:#d44;">${__("Mod TS")}</span></th>
+						<th title="${__("Created timestamp — optional")}">${__("Crt TS")}</th>
+						<th>${__("Column")}</th>
+						<th style="min-width: 9rem;" title="${__(
+							"Internal Frappe fieldname (lowercase, a-z 0-9 _). Label defaults from this unless you edit the label.",
+						)}"><strong>${__("Field name")}</strong></th>
+						<th>${__("DB Type")}</th>
+						<th style="min-width: 8rem;">${__("Frappe Type")}</th>
+						<th>${__("Nullable")}</th>
+						<th>${__("Keys")}</th>
+						<th style="min-width: 10rem;">${__("Label")}</th>
 					</tr>
 				</thead>
 				<tbody>
@@ -673,6 +762,14 @@ function show_preview_dialog(frm, preview_data, mode, new_table_name) {
 		}
 		let label_style_attr = label_styles ? ` style="${label_styles}"` : "";
 
+		let pfn = String(f.proposed_fieldname || "");
+		let pfn_esc = frappe.utils.escape_html(pfn);
+		let autoLbl = _label_from_fmp_fieldname(f.proposed_fieldname);
+		let labelSynced =
+			String(f.label || "").trim() === String(autoLbl || "").trim() ? "1" : "0";
+		let fn_readonly_attr = is_locked ? " readonly" : "";
+		let label_esc = frappe.utils.escape_html(String(f.label || ""));
+
 		let db_type_attr = frappe.utils.escape_html(String(f.db_type || ""));
 		html += `
 			<tr ${row_class} data-db-type="${db_type_attr}">
@@ -695,6 +792,14 @@ function show_preview_dialog(frm, preview_data, mode, new_table_name) {
 				<td style="text-align: center;">${mod_ts_cell}</td>
 				<td style="text-align: center;">${crt_ts_cell}</td>
 				<td><strong>${f.column_name}</strong></td>
+				<td style="min-width: 9rem;">
+					<input type="text" class="form-control form-control-sm field-name-input"
+						data-column="${f.column_name}"
+						data-fn-locked="${is_locked ? "1" : "0"}"
+						data-original="${pfn_esc}"
+						data-label-synced="${labelSynced}"
+						value="${pfn_esc}"${fn_readonly_attr}>
+				</td>
 				<td><code>${f.db_type}</code></td>
 				<td>
 					<select class="form-control form-control-sm field-type-select"
@@ -708,8 +813,8 @@ function show_preview_dialog(frm, preview_data, mode, new_table_name) {
 			<td>
 				<input type="text" class="form-control form-control-sm field-label-input${reserved_cls}"
 					data-column="${f.column_name}"
-					data-original="${f.label}"
-					value="${f.label}"${label_style_attr}${label_readonly}>
+					data-original="${label_esc}"
+					value="${label_esc}"${label_style_attr}${label_readonly}>
 				${reserved_hint}
 			</td>
 			</tr>
@@ -729,7 +834,7 @@ function show_preview_dialog(frm, preview_data, mode, new_table_name) {
 		const skip = $cb.is(":checked");
 		row.find(".matching-field-checkbox, .auto-generated-checkbox").prop("disabled", skip);
 		row.find(".name-field-radio, .mod-ts-radio, .crt-ts-radio").prop("disabled", skip);
-		row.find(".field-type-select, .field-label-input").prop("disabled", skip);
+		row.find(".field-type-select, .field-label-input, .field-name-input").prop("disabled", skip);
 		row.css("opacity", skip ? "0.75" : "");
 		if (skip) {
 			row.find(".matching-field-checkbox").prop("checked", false);
@@ -781,8 +886,44 @@ function show_preview_dialog(frm, preview_data, mode, new_table_name) {
 					.val($(this).data("original"));
 			}
 		});
+		d.$wrapper.find(".field-name-input").each(function () {
+			const col = $(this).data("column");
+			const skip = $(this).closest("tr").find(".skip-field-checkbox").is(":checked");
+			const wasLocked = $(this).attr("data-fn-locked") === "1";
+			if (skip) {
+				return;
+			}
+			if (id_col && col === id_col) {
+				$(this).val("name").prop("disabled", true).prop("readonly", false).attr("title", __("Maps to Frappe record ID (name)"));
+			} else {
+				$(this)
+					.prop("disabled", false)
+					.removeAttr("title")
+					.val($(this).data("original"))
+					.prop("readonly", wasLocked);
+			}
+		});
 		_apply_all_strings_data_mode();
 	}
+
+	d.fields_dict.field_preview.$wrapper.on("click", ".fmp-skip-all", function (e) {
+		e.preventDefault();
+		e.stopPropagation();
+		d.$wrapper.find(".skip-field-checkbox").prop("checked", true);
+		d.$wrapper.find(".skip-field-checkbox").each(function () {
+			refresh_skip_row_state($(this));
+		});
+		_refresh_frappe_id_state();
+	});
+	d.fields_dict.field_preview.$wrapper.on("click", ".fmp-skip-none", function (e) {
+		e.preventDefault();
+		e.stopPropagation();
+		d.$wrapper.find(".skip-field-checkbox").prop("checked", false);
+		d.$wrapper.find(".skip-field-checkbox").each(function () {
+			refresh_skip_row_state($(this));
+		});
+		_refresh_frappe_id_state();
+	});
 
 	/** True only for FM text / OData string — not numeric, date, time, or boolean. */
 	function _is_fm_text_db_type(db) {
@@ -887,6 +1028,9 @@ function show_preview_dialog(frm, preview_data, mode, new_table_name) {
 		_apply_all_strings_data_mode();
 	});
 	_refresh_frappe_id_state();
+	d.$wrapper.find(".field-name-input").each(function () {
+		_style_fieldname_input($(this));
+	});
 
 	// Limit matching field selection to 3
 	d.$wrapper.on("change", ".matching-field-checkbox", function () {
@@ -912,12 +1056,43 @@ function show_preview_dialog(frm, preview_data, mode, new_table_name) {
 		}
 	});
 
-	// Highlight changed labels (with reserved-column validation)
+	function _style_fieldname_input($inp) {
+		if ($inp.prop("readonly") || $inp.prop("disabled")) {
+			return;
+		}
+		const norm = _normalize_fmp_fieldname_input($inp.val());
+		const base = _normalize_fmp_fieldname_input($inp.data("original"));
+		if (norm !== base) {
+			$inp.css({ "border-color": "#f0ad4e", "background-color": "#fff8e1" });
+		} else {
+			$inp.css({ "border-color": "", "background-color": "" });
+		}
+	}
+
+	d.$wrapper.on("input blur", ".field-name-input", function () {
+		const $fn = $(this);
+		if ($fn.prop("readonly") || $fn.prop("disabled")) {
+			return;
+		}
+		const norm = _normalize_fmp_fieldname_input($fn.val());
+		$fn.val(norm);
+		const $lab = $fn.closest("tr").find(".field-label-input");
+		if (!$lab.prop("readonly") && !$lab.prop("disabled") && $fn.attr("data-label-synced") === "1") {
+			$lab.val(_label_from_fmp_fieldname(norm));
+		}
+		_style_fieldname_input($fn);
+	});
+
+	// Highlight changed labels (with reserved-column validation); orange if not auto from field name
 	d.$wrapper.on("input", ".field-label-input", function () {
 		let col_name = $(this).data("column");
-		let original = $(this).data("original");
 		let label = $(this).val().trim();
 		let is_reserved = RESERVED_FIELDNAMES.includes(col_name.toLowerCase());
+		const $row = $(this).closest("tr");
+		const autoLabel = _label_from_fmp_fieldname($row.find(".field-name-input").val());
+		if (!$(this).prop("readonly") && !$(this).prop("disabled")) {
+			$row.find(".field-name-input").attr("data-label-synced", label === autoLabel ? "1" : "0");
+		}
 
 		if (is_reserved) {
 			let scrubbed = _scrub_fieldname(label);
@@ -929,7 +1104,7 @@ function show_preview_dialog(frm, preview_data, mode, new_table_name) {
 				$(this).css({ "border-color": "#28a745", "background-color": "#f0fff0" });
 				$hint.hide();
 			}
-		} else if (label !== original) {
+		} else if (label && autoLabel && label !== autoLabel) {
 			$(this).css("border-color", "#f0ad4e");
 			$(this).css("background-color", "#fff8e1");
 		} else {
@@ -942,7 +1117,7 @@ function show_preview_dialog(frm, preview_data, mode, new_table_name) {
 	_make_preview_dialog_movable_resizable(d);
 }
 
-/** Drag header to move; resize modal content from corner (CSS resize). */
+/** Drag header to move (fixed positioning; jQuery .offset() breaks with Bootstrap modal flex centering). */
 function _make_preview_dialog_movable_resizable(dialog) {
 	const $wrap = dialog.$wrapper;
 	const $dlg = $wrap.find(".modal-dialog").first();
@@ -959,26 +1134,41 @@ function _make_preview_dialog_movable_resizable(dialog) {
 		"max-width": "96vw",
 		"max-height": "92vh",
 	});
-	$header.css("cursor", "move");
+	$header.css({ cursor: "move", "user-select": "none" });
 	const ns = "fmpSchemaPreviewDlg";
 	$header.off(`mousedown.${ns}`).on(`mousedown.${ns}`, function (e) {
-		if ($(e.target).closest("button, .close, a").length) {
+		if ($(e.target).closest("button, .close, a, input, select, label, .indicator-pill").length) {
 			return;
 		}
 		e.preventDefault();
-		$dlg.css("transform", "none");
-		const orig = $dlg.offset();
-		const startX = e.pageX;
-		const startY = e.pageY;
+		const rect = $dlg[0].getBoundingClientRect();
+		const startX = e.clientX;
+		const startY = e.clientY;
+		const baseLeft = rect.left;
+		const baseTop = rect.top;
+		$dlg.css({
+			position: "fixed",
+			margin: "0",
+			left: baseLeft + "px",
+			top: baseTop + "px",
+			width: rect.width + "px",
+			transform: "none",
+		});
 		function onMove(ev) {
-			$dlg.offset({
-				left: orig.left + (ev.pageX - startX),
-				top: orig.top + (ev.pageY - startY),
-			});
+			const dx = ev.clientX - startX;
+			const dy = ev.clientY - startY;
+			const pad = 8;
+			let nx = baseLeft + dx;
+			let ny = baseTop + dy;
+			nx = Math.max(pad, Math.min(nx, window.innerWidth - rect.width - pad));
+			ny = Math.max(pad, Math.min(ny, window.innerHeight - pad));
+			$dlg.css({ left: nx + "px", top: ny + "px" });
 		}
 		function onUp() {
 			$(document).off(`mousemove.${ns} mouseup.${ns}`);
+			$header.css("cursor", "move");
 		}
+		$header.css("cursor", "grabbing");
 		$(document).on(`mousemove.${ns}`, onMove);
 		$(document).on(`mouseup.${ns}`, onUp);
 	});

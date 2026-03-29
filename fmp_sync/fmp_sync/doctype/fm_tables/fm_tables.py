@@ -271,6 +271,7 @@ class FMTables(Document):
 		self,
 		field_overrides=None,
 		label_overrides=None,
+		fieldname_overrides=None,
 		matching_fields=None,
 		name_field_column=None,
 		auto_generated_columns=None,
@@ -287,6 +288,9 @@ class FMTables(Document):
 
 			if label_overrides and isinstance(label_overrides, str):
 				label_overrides = json.loads(label_overrides)
+
+			if fieldname_overrides and isinstance(fieldname_overrides, str):
+				fieldname_overrides = json.loads(fieldname_overrides)
 
 			# Matching fields should already be saved by JS before this is called
 			# But update if provided and different (belt and suspenders)
@@ -307,6 +311,7 @@ class FMTables(Document):
 				self,
 				field_overrides=field_overrides,
 				label_overrides=label_overrides,
+				fieldname_overrides=fieldname_overrides,
 				name_field_column=name_field_column or None,
 				auto_generated_columns=auto_generated_columns or None,
 				modified_ts_field=modified_ts_field or None,
@@ -491,6 +496,7 @@ class FMTables(Document):
 		new_table_name=None,
 		field_overrides=None,
 		label_overrides=None,
+		fieldname_overrides=None,
 		matching_fields=None,
 		name_field_column=None,
 		auto_generated_columns=None,
@@ -513,6 +519,8 @@ class FMTables(Document):
 			field_overrides = json.loads(field_overrides)
 		if label_overrides and isinstance(label_overrides, str):
 			label_overrides = json.loads(label_overrides)
+		if fieldname_overrides and isinstance(fieldname_overrides, str):
+			fieldname_overrides = json.loads(fieldname_overrides)
 
 		# Update source table name if it changed
 		if new_table_name and new_table_name != self.table_name:
@@ -539,6 +547,7 @@ class FMTables(Document):
 			self,
 			field_overrides=field_overrides,
 			label_overrides=label_overrides,
+			fieldname_overrides=fieldname_overrides,
 			name_field_column=name_field_column or None,
 			auto_generated_columns=auto_generated_columns or None,
 			modified_ts_field=modified_ts_field or None,

@@ -16,9 +16,11 @@ Data flow:
 """
 
 import json
+import re
 
 import frappe
 from frappe import _
+from frappe.utils import cstr
 
 from fmp_sync.utils.workspace_utils import add_to_workspace
 
@@ -57,21 +59,37 @@ def sanitize_fieldname(fieldname):
 	return fieldname
 
 
-def resolve_fieldname(col_name, label_overrides=None):
+def normalize_frappe_fieldname_fragment(name):
+	"""Reduce arbitrary text to a valid Frappe fieldname fragment (lowercase a-z, 0-9, _)."""
+	if not name:
+		return ""
+	base = frappe.scrub(cstr(name))
+	base = re.sub(r"[^a-z0-9_]", "", base)
+	base = re.sub(r"_+", "_", base).strip("_")
+	return base
+
+
+def resolve_fieldname(col_name, label_overrides=None, fieldname_overrides=None):
 	"""Determine the Frappe fieldname for a FM field.
 
-	FileMaker allows spaces and mixed case in field names; Frappe fieldnames must be
-	lowercase identifiers (``frappe.scrub`` turns e.g. ``Address 1`` → ``address_1``).
+	FileMaker allows spaces and punctuation (e.g. ``active?``); Frappe allows only
+	``[a-z0-9_]``. User ``fieldname_overrides`` (FM column → desired fieldname) win.
 
 	For restricted source names (e.g. 'name'), if a label override is provided the
-	fieldname is derived from that label's scrubbed form.
+	fieldname can be derived from that label when no explicit override is given.
 	"""
+	if fieldname_overrides and col_name in fieldname_overrides:
+		norm = normalize_frappe_fieldname_fragment(fieldname_overrides[col_name])
+		if not norm:
+			norm = normalize_frappe_fieldname_fragment(col_name) or "unnamed_field"
+		return sanitize_fieldname(norm)
+
 	col_lower = (col_name or "").lower()
 	if col_lower in RESTRICTED_FIELDNAMES and label_overrides and col_name in label_overrides:
-		derived = frappe.scrub(label_overrides[col_name])
+		derived = normalize_frappe_fieldname_fragment(label_overrides[col_name])
 		if derived and derived.lower() not in RESTRICTED_FIELDNAMES:
 			return derived
-	scrubbed = frappe.scrub(col_name or "") or "unnamed_field"
+	scrubbed = normalize_frappe_fieldname_fragment(col_name) or "unnamed_field"
 	return sanitize_fieldname(scrubbed)
 
 
@@ -551,7 +569,15 @@ def detect_timestamp_fields(session_or_tuple, table_name, fm_conn_doc=None):
 # ---------------------------------------------------------------------------
 
 
-def build_frappe_field(col, schema, fm_table_doc, field_overrides=None, label_overrides=None, idx=1):
+def build_frappe_field(
+	col,
+	schema,
+	fm_table_doc,
+	field_overrides=None,
+	label_overrides=None,
+	fieldname_overrides=None,
+	idx=1,
+):
 	"""Build a Frappe field dict from a FileMaker/OData field definition.
 
 	Args:
@@ -560,21 +586,22 @@ def build_frappe_field(col, schema, fm_table_doc, field_overrides=None, label_ov
 		fm_table_doc: FM Tables document (for timestamp and matching fields)
 		field_overrides: Optional dict of {column_name: fieldtype}
 		label_overrides: Optional dict of {column_name: label}
+		fieldname_overrides: Optional dict of {column_name: frappe_fieldname}
 		idx: Field index
 
 	Returns:
 		Dict suitable for DocType field definition
 	"""
 	col_name = col["COLUMN_NAME"]
-	safe_fieldname = resolve_fieldname(col_name, label_overrides)
+	safe_fieldname = resolve_fieldname(col_name, label_overrides, fieldname_overrides)
 	field_mapping = map_edm_to_frappe_type(col)
 
 	# Apply user override if provided
 	if field_overrides and col_name in field_overrides:
 		field_mapping["fieldtype"] = field_overrides[col_name]
 
-	# Use label override if provided, otherwise generate from column name
-	label = col_name.replace("_", " ").title()
+	# Default label from Frappe fieldname; user label overrides win
+	label = safe_fieldname.replace("_", " ").title()
 	if label_overrides and col_name in label_overrides:
 		label = label_overrides[col_name]
 
@@ -695,9 +722,11 @@ def preview_table_schema(fm_conn_doc, fm_table_doc):
 
 	# Build lookup of existing Frappe field labels (for remap: show saved labels)
 	existing_field_labels = {}
+	existing_fieldnames = {}
 	existing_columns = set()
 	if fm_table_doc.frappe_doctype and frappe.db.exists("DocType", fm_table_doc.frappe_doctype):
 		col_map_raw = getattr(fm_table_doc, "column_mapping", None)
+		col_map = {}
 		if col_map_raw:
 			col_map = json.loads(col_map_raw)
 			existing_columns = set(col_map.keys())
@@ -708,6 +737,8 @@ def preview_table_schema(fm_conn_doc, fm_table_doc):
 		for fm_col in existing_columns:
 			mapping_info = col_map.get(fm_col, {})
 			fn = mapping_info.get("fieldname", fm_col.lower()) if isinstance(mapping_info, dict) else mapping_info
+			if isinstance(mapping_info, dict) and mapping_info.get("fieldname"):
+				existing_fieldnames[fm_col] = mapping_info["fieldname"]
 			if fn in fieldname_to_label:
 				existing_field_labels[fm_col] = fieldname_to_label[fn]
 
@@ -718,12 +749,17 @@ def preview_table_schema(fm_conn_doc, fm_table_doc):
 
 		is_pk = col_name in schema.get("primary_key", [])
 
-		# Use existing Frappe label if available, otherwise auto-generate
-		label = existing_field_labels.get(col_name, col_name.replace("_", " ").title())
+		proposed_fieldname = existing_fieldnames.get(col_name) or resolve_fieldname(col_name, None, None)
+		# Label from DocType if mirrored; else title-case from proposed Frappe fieldname
+		label = existing_field_labels.get(
+			col_name,
+			proposed_fieldname.replace("_", " ").title(),
+		)
 
 		preview.append({
 			"column_name": col_name,
 			"db_type": col.get("COLUMN_TYPE", col.get("EDM_TYPE", "")),
+			"proposed_fieldname": proposed_fieldname,
 			"proposed_fieldtype": field_mapping["fieldtype"],
 			"label": label,
 			"is_nullable": col.get("IS_NULLABLE", "YES"),
@@ -762,10 +798,38 @@ def preview_table_schema(fm_conn_doc, fm_table_doc):
 # ---------------------------------------------------------------------------
 
 
+def _assert_unique_mirror_fieldnames(schema, name_field_column, label_overrides, fieldname_overrides):
+	names = []
+	for col in schema["columns"]:
+		cn = col["COLUMN_NAME"]
+		if name_field_column and cn == name_field_column:
+			continue
+		names.append(resolve_fieldname(cn, label_overrides, fieldname_overrides))
+	seen = set()
+	dups = set()
+	for n in names:
+		if n in seen:
+			dups.add(n)
+		seen.add(n)
+	if dups:
+		frappe.throw(
+			_(
+				"Duplicate Frappe field names: {0}. Edit field names in the preview so each is unique."
+			).format(", ".join(sorted(dups)))
+		)
+
+
 def mirror_table_schema(
-	fm_conn_doc, fm_table_doc, field_overrides=None, label_overrides=None,
-	name_field_column=None, auto_generated_columns=None,
-	modified_ts_field=None, created_ts_field=None, user_skipped_columns=None,
+	fm_conn_doc,
+	fm_table_doc,
+	field_overrides=None,
+	label_overrides=None,
+	fieldname_overrides=None,
+	name_field_column=None,
+	auto_generated_columns=None,
+	modified_ts_field=None,
+	created_ts_field=None,
+	user_skipped_columns=None,
 ):
 	"""Mirror a FileMaker table schema to a Frappe Custom DocType.
 
@@ -774,6 +838,7 @@ def mirror_table_schema(
 		fm_table_doc: FM Tables document
 		field_overrides: Optional dict of {column_name: fieldtype}
 		label_overrides: Optional dict of {column_name: label}
+		fieldname_overrides: Optional dict of {column_name: frappe_fieldname}
 		name_field_column: Optional FM field that maps directly to Frappe name
 		auto_generated_columns: List of FM field names that are auto-generated
 		modified_ts_field: FM field name for modification timestamp
@@ -809,6 +874,8 @@ def mirror_table_schema(
 		# Determine DocType name
 		doctype_name = fm_table_doc.fmp_name or table_name
 
+		_assert_unique_mirror_fieldnames(schema, name_field_column, label_overrides, fieldname_overrides)
+
 		# Check if DocType already exists
 		if frappe.db.exists("DocType", doctype_name):
 			frappe.msgprint(
@@ -817,7 +884,13 @@ def mirror_table_schema(
 			)
 			try:
 				update_existing_doctype(
-					doctype_name, schema, fm_table_doc, field_overrides, label_overrides, name_field_column
+					doctype_name,
+					schema,
+					fm_table_doc,
+					field_overrides,
+					label_overrides,
+					name_field_column,
+					fieldname_overrides=fieldname_overrides,
 				)
 			except Exception as update_error:
 				if "appears multiple times" in str(update_error):
@@ -832,13 +905,25 @@ def mirror_table_schema(
 					frappe.delete_doc("DocType", doctype_name, force=True, ignore_permissions=True)
 					frappe.db.commit()
 					create_custom_doctype(
-						doctype_name, schema, fm_table_doc, field_overrides, label_overrides, name_field_column
+						doctype_name,
+						schema,
+						fm_table_doc,
+						field_overrides,
+						label_overrides,
+						name_field_column,
+						fieldname_overrides=fieldname_overrides,
 					)
 				else:
 					raise
 		else:
 			create_custom_doctype(
-				doctype_name, schema, fm_table_doc, field_overrides, label_overrides, name_field_column
+				doctype_name,
+				schema,
+				fm_table_doc,
+				field_overrides,
+				label_overrides,
+				name_field_column,
+				fieldname_overrides=fieldname_overrides,
 			)
 
 		# Build column mapping
@@ -860,7 +945,7 @@ def mirror_table_schema(
 					"is_name": True,
 				}
 			else:
-				frappe_fieldname = resolve_fieldname(fm_col_name, label_overrides)
+				frappe_fieldname = resolve_fieldname(fm_col_name, label_overrides, fieldname_overrides)
 				column_mapping[fm_col_name] = {
 					"fieldname": frappe_fieldname,
 					"is_virtual": is_computed,
@@ -918,7 +1003,13 @@ def mirror_table_schema(
 
 
 def create_custom_doctype(
-	doctype_name, schema, fm_table_doc, field_overrides=None, label_overrides=None, name_field_column=None
+	doctype_name,
+	schema,
+	fm_table_doc,
+	field_overrides=None,
+	label_overrides=None,
+	name_field_column=None,
+	fieldname_overrides=None,
 ):
 	"""Create a new Custom DocType programmatically.
 
@@ -928,6 +1019,7 @@ def create_custom_doctype(
 		fm_table_doc: FM Tables document
 		field_overrides: Optional dict of {column_name: fieldtype}
 		label_overrides: Optional dict of {column_name: label}
+		fieldname_overrides: Optional dict of {column_name: frappe_fieldname}
 		name_field_column: Optional FM field that maps directly to Frappe name
 	"""
 	autoname = "hash"
@@ -937,7 +1029,9 @@ def create_custom_doctype(
 		matching_fields = get_matching_fields_list(fm_table_doc)
 		if matching_fields:
 			first_match_field = matching_fields[0]
-			safe_fieldname = resolve_fieldname(first_match_field, label_overrides)
+			safe_fieldname = resolve_fieldname(
+				first_match_field, label_overrides, fieldname_overrides
+			)
 			autoname = f"field:{safe_fieldname}"
 
 	fields = []
@@ -946,7 +1040,15 @@ def create_custom_doctype(
 		col_name = col["COLUMN_NAME"]
 		if name_field_column and col_name == name_field_column:
 			continue
-		field = build_frappe_field(col, schema, fm_table_doc, field_overrides, label_overrides, idx)
+		field = build_frappe_field(
+			col,
+			schema,
+			fm_table_doc,
+			field_overrides,
+			label_overrides,
+			fieldname_overrides,
+			idx,
+		)
 		fields.append(field)
 		idx += 1
 
@@ -977,7 +1079,13 @@ def create_custom_doctype(
 
 
 def update_existing_doctype(
-	doctype_name, schema, fm_table_doc, field_overrides=None, label_overrides=None, name_field_column=None
+	doctype_name,
+	schema,
+	fm_table_doc,
+	field_overrides=None,
+	label_overrides=None,
+	name_field_column=None,
+	fieldname_overrides=None,
 ):
 	"""Update an existing DocType with new fields from schema.
 
@@ -992,7 +1100,9 @@ def update_existing_doctype(
 		matching_fields = get_matching_fields_list(fm_table_doc)
 		if matching_fields:
 			first_match_field = matching_fields[0]
-			safe_fieldname = resolve_fieldname(first_match_field, label_overrides)
+			safe_fieldname = resolve_fieldname(
+				first_match_field, label_overrides, fieldname_overrides
+			)
 			new_autoname = f"field:{safe_fieldname}"
 		else:
 			new_autoname = doctype_doc.autoname or "hash"
@@ -1013,10 +1123,18 @@ def update_existing_doctype(
 		col_name = col["COLUMN_NAME"]
 		if name_field_column and col_name == name_field_column:
 			continue
-		safe_fieldname = resolve_fieldname(col_name, label_overrides)
+		safe_fieldname = resolve_fieldname(col_name, label_overrides, fieldname_overrides)
 
 		if safe_fieldname not in existing_fields:
-			field = build_frappe_field(col, schema, fm_table_doc, field_overrides, label_overrides, idx)
+			field = build_frappe_field(
+				col,
+				schema,
+				fm_table_doc,
+				field_overrides,
+				label_overrides,
+				fieldname_overrides,
+				idx,
+			)
 			doctype_doc.append("fields", field)
 			new_fields_added = True
 			idx += 1

@@ -3,12 +3,12 @@
 
 """
 Schema mirroring utilities for FMP_Sync.
-Handles FileMaker OData schema introspection and Frappe DocType generation.
+Handles FileMaker schema from the connection cache and Frappe DocType generation.
 
 Data flow:
   1. get_fm_session()          → requests.Session with Basic Auth
   2. discover_base_tables()    → GET service doc + FileMaker_Tables
-  3. get_table_schema()        → GET $metadata, parse CSDL XML
+  3. get_table_schema()        → FileMaker Connection.fm_schema cache only (no $metadata)
   4. classify_field()          → include / skip (unstored calc, container, repeating)
   5. map_edm_to_frappe_type()  → Edm.* → Frappe fieldtype
   6. preview_table_schema()    → UI contract: return field list for user review
@@ -16,11 +16,8 @@ Data flow:
 """
 
 import json
-import time
-import xml.etree.ElementTree as ET
 
 import frappe
-import requests.exceptions as req_exc
 from frappe import _
 
 from fmp_sync.utils.workspace_utils import add_to_workspace
@@ -43,17 +40,6 @@ RESTRICTED_FIELDNAMES = (
 	"flags",
 	"docstatus",
 )
-
-# $metadata CSDL can be multi-megabyte; chunked transfers sometimes truncate (proxy / idle).
-_ODATA_METADATA_RETRIES = 4
-_ODATA_METADATA_TIMEOUT = (45, 360)  # (connect, read) seconds
-_ODATA_METADATA_CHUNK = 262144
-
-# OData CSDL XML namespaces
-_NS = {
-	"edmx": "http://docs.oasis-open.org/odata/ns/edmx",
-	"edm": "http://docs.oasis-open.org/odata/ns/edm",
-}
 
 
 # ---------------------------------------------------------------------------
@@ -150,17 +136,6 @@ def _odata_get(session, url, params=None, timeout=30):
 	return resp.json()
 
 
-def _odata_get_xml(session, url, timeout=30):
-	"""Perform an OData GET request expecting XML (e.g. $metadata).
-
-	Returns:
-		xml.etree.ElementTree.Element (root)
-	"""
-	resp = session.get(url, headers={"Accept": "application/xml"}, timeout=timeout)
-	resp.raise_for_status()
-	return ET.fromstring(resp.content)
-
-
 # ---------------------------------------------------------------------------
 # Schema discovery  (NEW — replaces information_schema queries)
 # ---------------------------------------------------------------------------
@@ -224,139 +199,120 @@ def _discover_base_tables(session, base_url):
 	return result
 
 
-def get_table_schema(session_or_tuple, table_name, fm_conn_doc=None):
-	"""Get field schema for a FileMaker table via cached FM schema or OData $metadata.
-
-	Parses the CSDL XML to extract Property definitions for the named EntityType,
-	then classifies each field (include / skip).
+def get_table_schema(session_or_tuple, table_name, fm_conn_doc):
+	"""Get field schema from FileMaker Connection.fm_schema only — never OData $metadata.
 
 	Args:
-		session_or_tuple: (session, base_url) tuple
-		table_name: FileMaker table name
-		fm_conn_doc: Optional FileMaker Connection doc — when fm_schema is set, cache is tried first
+		session_or_tuple: (session, base_url) tuple (unused; kept for caller compatibility)
+		table_name: FileMaker table / table occurrence name
+		fm_conn_doc: FileMaker Connection singleton (required)
 
 	Returns:
-		Dict with:
-		  columns     — list of field dicts (see _parse_entity_type_properties)
-		  primary_key — list of key property names (usually ["ROWID"])
-		  unique_keys — dict (empty for FM — no unique constraint metadata in OData)
-		  indexes     — dict (empty for FM — no index metadata in OData)
-		  skipped     — list of dicts for fields that were skipped (unstored calcs, containers, repeating)
+		Dict with columns, primary_key, unique_keys, indexes, skipped
 	"""
-	session, base_url = session_or_tuple
-	if fm_conn_doc is not None:
-		raw_schema = getattr(fm_conn_doc, "fm_schema", None)
-		if raw_schema:
-			rs = raw_schema if isinstance(raw_schema, str) else json.dumps(raw_schema)
-			if rs and str(rs).strip():
-				cached = _get_table_schema_from_cache(fm_conn_doc, table_name)
-				if cached is not None:
-					return cached
-				frappe.logger("fmp_sync").warning(
-					"FM schema cache miss for table %r; falling back to $metadata", table_name
-				)
-	root = _odata_get_xml(session, f"{base_url}/$metadata")
-
-	# Find the EntityType matching table_name
-	columns = []
-	primary_key = []
-	skipped = []
-
-	for schema_el in root.iter(f"{{{_NS['edm']}}}Schema"):
-		for entity_type in schema_el.findall(f"{{{_NS['edm']}}}EntityType"):
-			et_name = entity_type.get("Name")
-			if et_name != table_name:
-				continue
-
-			# Extract primary key
-			key_el = entity_type.find(f"{{{_NS['edm']}}}Key")
-			if key_el is not None:
-				for prop_ref in key_el.findall(f"{{{_NS['edm']}}}PropertyRef"):
-					primary_key.append(prop_ref.get("Name"))
-
-			# Extract properties
-			for prop in entity_type.findall(f"{{{_NS['edm']}}}Property"):
-				field_dict = _property_to_field_dict(prop)
-				classification = classify_field(field_dict)
-
-				if classification == "include":
-					columns.append(field_dict)
-				else:
-					skipped.append({**field_dict, "skip_reason": classification})
-
-			break  # Found our EntityType
-
-	if not columns:
-		# Maybe the table name in metadata uses a different casing or encoding
-		# List available entity types for the error message
-		available = []
-		for schema_el in root.iter(f"{{{_NS['edm']}}}Schema"):
-			for et in schema_el.findall(f"{{{_NS['edm']}}}EntityType"):
-				available.append(et.get("Name"))
+	if fm_conn_doc is None:
 		frappe.throw(
-			_("No fields found for table '{0}' in $metadata. Available EntityTypes: {1}").format(
-				table_name, ", ".join(available[:20])
+			_("FileMaker Connection document is required for schema lookup (there is no $metadata fallback).")
+		)
+	data = _load_fm_schema_payload(fm_conn_doc)
+	if not data or not isinstance(data.get("tables"), list) or len(data["tables"]) == 0:
+		frappe.throw(
+			_(
+				"FM schema cache is empty. Open **FileMaker Connection**, click "
+				"**Refresh Schema Cache** or **Discover Tables**, then try again."
 			)
 		)
+	cached = _get_table_schema_from_cache_data(data, table_name)
+	if cached is None:
+		frappe.throw(
+			_(
+				"Table '{0}' is not in the FM schema cache. Open **FileMaker Connection** and click "
+				"**Refresh Schema Cache**, then try again."
+			).format(table_name)
+		)
+	if not cached["columns"]:
+		frappe.throw(
+			_(
+				"No importable fields for table '{0}' in the schema cache (all skipped or empty). "
+				"Try **Refresh Schema Cache** on FileMaker Connection."
+			).format(table_name)
+		)
+	return cached
 
+
+def _load_fm_schema_payload(fm_conn_doc):
+	"""Return parsed schema dict with 'tables' from FileMaker Connection.fm_schema, or None."""
+	raw = getattr(fm_conn_doc, "fm_schema", None)
+	if raw is None:
+		return None
+	if isinstance(raw, dict):
+		return raw if raw.get("tables") is not None else None
+	s = str(raw).strip()
+	if not s:
+		return None
+	try:
+		data = json.loads(s)
+	except (TypeError, ValueError):
+		return None
+	# JSON field was sometimes assigned json.dumps(str) → one more decode
+	if isinstance(data, str):
+		try:
+			data = json.loads(data)
+		except (TypeError, ValueError):
+			return None
+	if not isinstance(data, dict) or data.get("tables") is None:
+		return None
+	return data
+
+
+def _find_cache_table_entry(tables, table_name):
+	"""Match FM Tables table_name to a cache row (table_name / base_table_name, case-insensitive)."""
+	if not table_name or not tables:
+		return None
+	want = table_name.strip()
+	want_lower = want.lower()
+	for t in tables:
+		tn = (t.get("table_name") or "").strip()
+		if tn == want:
+			return t
+	for t in tables:
+		tn = (t.get("table_name") or "").strip()
+		if tn.lower() == want_lower:
+			return t
+	for t in tables:
+		bn = (t.get("base_table_name") or "").strip()
+		if bn == want:
+			return t
+	for t in tables:
+		bn = (t.get("base_table_name") or "").strip()
+		if bn.lower() == want_lower:
+			return t
+	return None
+
+
+def _get_table_schema_from_cache_data(data, table_name):
+	"""Build get_table_schema-shaped dict from parsed cache *data*, or None if table missing."""
+	tables = data.get("tables") or []
+	entry = _find_cache_table_entry(tables, table_name)
+	if entry is None:
+		return None
+	columns = []
+	skipped = []
+	for f in entry.get("fields") or []:
+		field_dict = _cache_row_to_field_dict(f)
+		if not field_dict.get("COLUMN_NAME"):
+			continue
+		classification = classify_field(field_dict)
+		if classification == "include":
+			columns.append(field_dict)
+		else:
+			skipped.append({**field_dict, "skip_reason": classification})
 	return {
 		"columns": columns,
-		"primary_key": primary_key,
-		"unique_keys": {},  # FM OData doesn't expose unique constraints
-		"indexes": {},  # FM OData doesn't expose index metadata
+		"primary_key": ["ROWID"],
+		"unique_keys": {},
+		"indexes": {},
 		"skipped": skipped,
-	}
-
-
-def _property_to_field_dict(prop_element):
-	"""Convert an OData CSDL <Property> XML element to a field dict.
-
-	Returns dict with keys:
-	  COLUMN_NAME, EDM_TYPE, IS_NULLABLE, MAX_LENGTH,
-	  COMPUTED, AUTO_GENERATED, VERSION_ID, MAX_REPETITIONS,
-	  COLUMN_TYPE (human-readable type string for preview UI)
-	"""
-	name = prop_element.get("Name")
-	edm_type = prop_element.get("Type", "Edm.String")
-	nullable = prop_element.get("Nullable", "true")
-	max_length = prop_element.get("MaxLength")
-
-	# Parse annotations from child elements or attributes
-	computed = prop_element.get("Computed", "").lower() == "true"
-	auto_generated = False
-	version_id = False
-	max_reps = 1
-
-	for ann in prop_element.findall(f"{{{_NS['edm']}}}Annotation"):
-		term = ann.get("Term", "")
-		if "AutoGenerated" in term:
-			auto_generated = ann.get("Bool", "true").lower() == "true"
-		elif "VersionID" in term:
-			version_id = ann.get("Bool", "true").lower() == "true"
-		elif "MaxRepetitions" in term:
-			try:
-				max_reps = int(ann.get("Int", "1"))
-			except ValueError:
-				max_reps = 1
-
-	# Also check for Computed in annotations (some FM versions use annotation instead of attribute)
-	if not computed:
-		for ann in prop_element.findall(f"{{{_NS['edm']}}}Annotation"):
-			term = ann.get("Term", "")
-			if "Computed" in term:
-				computed = ann.get("Bool", "true").lower() == "true"
-
-	return {
-		"COLUMN_NAME": name,
-		"EDM_TYPE": edm_type,
-		"IS_NULLABLE": "YES" if nullable.lower() == "true" else "NO",
-		"MAX_LENGTH": int(max_length) if max_length and max_length.isdigit() else None,
-		"COMPUTED": computed,
-		"AUTO_GENERATED": auto_generated,
-		"VERSION_ID": version_id,
-		"MAX_REPETITIONS": max_reps,
-		# Human-readable type for the preview UI (replaces MariaDB's COLUMN_TYPE)
-		"COLUMN_TYPE": edm_type.replace("Edm.", ""),
 	}
 
 
@@ -426,55 +382,6 @@ def _cache_row_to_field_dict(f):
 	}
 
 
-def _get_table_schema_from_cache(fm_conn_doc, table_name):
-	"""Build get_table_schema-shaped dict from fm_conn_doc.fm_schema JSON, or None if miss/invalid."""
-	raw = getattr(fm_conn_doc, "fm_schema", None)
-	if not raw:
-		return None
-	if isinstance(raw, dict):
-		data = raw
-	else:
-		s = str(raw).strip()
-		if not s:
-			return None
-		try:
-			data = json.loads(s)
-		except (TypeError, ValueError):
-			return None
-	tables = data.get("tables") or []
-	entry = None
-	for t in tables:
-		if t.get("table_name") == table_name:
-			entry = t
-			break
-	if entry is None:
-		tn_lower = (table_name or "").lower()
-		for t in tables:
-			if (t.get("table_name") or "").lower() == tn_lower:
-				entry = t
-				break
-	if entry is None:
-		return None
-	columns = []
-	skipped = []
-	for f in entry.get("fields") or []:
-		field_dict = _cache_row_to_field_dict(f)
-		if not field_dict.get("COLUMN_NAME"):
-			continue
-		classification = classify_field(field_dict)
-		if classification == "include":
-			columns.append(field_dict)
-		else:
-			skipped.append({**field_dict, "skip_reason": classification})
-	return {
-		"columns": columns,
-		"primary_key": ["ROWID"],
-		"unique_keys": {},
-		"indexes": {},
-		"skipped": skipped,
-	}
-
-
 # ---------------------------------------------------------------------------
 # Field classification  (NEW)
 # ---------------------------------------------------------------------------
@@ -484,7 +391,7 @@ def classify_field(field_dict):
 	"""Classify a field as include or skip.
 
 	Args:
-		field_dict: Dict from _property_to_field_dict
+		field_dict: Dict with COLUMN_NAME, EDM_TYPE, COMPUTED, MAX_REPETITIONS, etc.
 
 	Returns:
 		str: "include", "skip_unstored_calc", "skip_container", "skip_repeating"
@@ -499,7 +406,7 @@ def classify_field(field_dict):
 	if field_dict.get("MAX_REPETITIONS", 1) > 1:
 		return "skip_repeating"
 
-	# Skip unstored calculations (Computed=true in $metadata)
+	# Skip unstored calculations (COMPUTED / FieldClass in cache)
 	if field_dict.get("COMPUTED"):
 		return "skip_unstored_calc"
 
@@ -569,27 +476,27 @@ map_mariadb_to_frappe_type = map_edm_to_frappe_type
 
 
 # ---------------------------------------------------------------------------
-# Timestamp detection  (MODIFIED — reads from parsed $metadata instead of SQL)
+# Timestamp detection  (reads from cached schema columns)
 # ---------------------------------------------------------------------------
 
 
 def detect_timestamp_fields(session_or_tuple, table_name, fm_conn_doc=None):
-	"""Auto-detect created and modified timestamp fields from OData schema.
+	"""Auto-detect created and modified timestamp fields from cached schema.
 
-	Looks for Edm.DateTimeOffset properties. Uses:
-	  - VersionID annotation → modified timestamp
-	  - Common name patterns → created/modified
+	Looks for Edm.DateTimeOffset columns. Uses VersionID and common name patterns.
 
 	Args:
 		session_or_tuple: (session, base_url) tuple
 		table_name: FileMaker table name
-		fm_conn_doc: Optional FileMaker Connection doc for schema cache
+		fm_conn_doc: FileMaker Connection doc; loads singleton if omitted
 
 	Returns:
 		Dict with 'created' and 'modified' field names (or None)
 	"""
+	if fm_conn_doc is None:
+		fm_conn_doc = frappe.get_single("FileMaker Connection")
 	try:
-		schema = get_table_schema(session_or_tuple, table_name, fm_conn_doc=fm_conn_doc)
+		schema = get_table_schema(session_or_tuple, table_name, fm_conn_doc)
 
 		created_field = None
 		modified_field = None
@@ -637,7 +544,7 @@ def detect_timestamp_fields(session_or_tuple, table_name, fm_conn_doc=None):
 
 
 # ---------------------------------------------------------------------------
-# Build Frappe field  (MODIFIED — reads from OData field dict instead of MariaDB column)
+# Build Frappe field  (from cached FM field dict)
 # ---------------------------------------------------------------------------
 
 
@@ -702,7 +609,7 @@ def build_frappe_field(col, schema, fm_table_doc, field_overrides=None, label_ov
 
 
 # ---------------------------------------------------------------------------
-# Preview  (MODIFIED — uses OData-sourced schema)
+# Preview  (uses fm_schema cache)
 # ---------------------------------------------------------------------------
 
 
@@ -795,7 +702,7 @@ def preview_table_schema(fm_conn_doc, fm_table_doc):
 
 
 # ---------------------------------------------------------------------------
-# Mirror  (MODIFIED — uses OData-sourced schema, stores skipped/stored-calc info)
+# Mirror  (MODIFIED — uses fm_schema cache, stores skipped/stored-calc info)
 # ---------------------------------------------------------------------------
 
 

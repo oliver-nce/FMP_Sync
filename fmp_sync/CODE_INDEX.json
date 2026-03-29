@@ -6,12 +6,12 @@
   },
 
   "architecture": {
-    "overview": "FMP Sync (app_title: Tables) synchronises FileMaker Server base tables to Frappe custom doctypes via the OData v4 API. It mirrors FM table schemas (from $metadata CSDL) as Frappe doctypes, then syncs data via OData GET requests. Reverse sync (Frappe → FM) is stubbed for future OData POST/PATCH implementation.",
-    "data_flow": "FileMaker OData v4 → schema_mirror.py (GET $metadata, parse CSDL XML, create/update Frappe doctype) → data_sync.py (GET records with $filter/$select → upsert Frappe records) | Frappe doc events → live_sync.py (stub) / reverse_sync.py (stub)",
+    "overview": "FMP Sync (app_title: Tables) synchronises FileMaker Server base tables to Frappe custom doctypes via the OData v4 API. It mirrors FM table schemas from the FileMaker Connection.fm_schema cache (OData system tables) as Frappe doctypes, then syncs data via OData GET requests. Reverse sync (Frappe → FM) is stubbed for future OData POST/PATCH implementation.",
+    "data_flow": "FileMaker OData v4 → schema_mirror.py (fm_schema cache → create/update Frappe doctype) → data_sync.py (GET records with $filter/$select → upsert Frappe records) | Frappe doc events → live_sync.py (stub) / reverse_sync.py (stub)",
     "key_patterns": [
       "FM Tables doctype is the central config record per synced table (column mapping, matching keys, field overrides, skipped/stored-calc fields)",
       "FileMaker Connection is a Single DocType storing OData credentials (host, port, database, Basic Auth, SSL)",
-      "schema_mirror.py introspects FM table schema via OData $metadata CSDL XML and creates/updates Frappe custom doctype",
+      "schema_mirror.py builds FM table schema from FileMaker Connection.fm_schema cache (OData system tables) and creates/updates Frappe custom doctype",
       "data_sync.py does incremental sync using OData $filter on timestamp fields, with paginated GET via @odata.nextLink",
       "live_sync.py and reverse_sync.py are no-op stubs — will use OData POST/PATCH when reverse sync is needed",
       "classify_field() skips unstored calcs (Computed=true), containers (Edm.Binary/Stream), and repeating fields (MaxRepetitions>1)",
@@ -45,9 +45,9 @@
       "sections": ["Desktop page override", "Version injection"]
     },
     "fmp_sync/utils/schema_mirror.py": {
-      "purpose": "FileMaker OData schema introspection and Frappe doctype mirroring: GET $metadata CSDL XML, parse EntityType Properties, classify fields (include/skip), map EDM types to Frappe types, create or update Frappe custom doctype",
+      "purpose": "FileMaker OData schema from FileMaker Connection.fm_schema cache, classify fields (include/skip), map EDM types to Frappe types, create or update Frappe custom doctype",
       "exports": ["sanitize_fieldname", "resolve_fieldname", "get_matching_fields_list", "build_frappe_field", "get_fm_session", "discover_tables_and_views", "detect_timestamp_fields", "get_table_schema", "map_edm_to_frappe_type", "classify_field", "preview_table_schema", "mirror_table_schema", "create_custom_doctype", "update_existing_doctype"],
-      "private_helpers": ["_odata_get", "_odata_get_xml", "_discover_base_tables", "_property_to_field_dict"],
+      "private_helpers": ["_odata_get", "_discover_base_tables", "_load_fm_schema_payload", "_get_table_schema_from_cache_data"],
       "depends_on": ["fmp_sync/fmp_sync/doctype/filemaker_connection/", "fmp_sync/fmp_sync/doctype/fm_tables/"],
       "sections": ["Field name helpers", "OData session", "OData helpers", "Schema discovery", "Field classification", "EDM type mapping", "Preview", "DocType creation/update"]
     },

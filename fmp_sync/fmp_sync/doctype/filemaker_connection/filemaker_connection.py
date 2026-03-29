@@ -9,8 +9,6 @@ Provides test_connection (GET service document) and discover_tables
 (GET FileMaker_Tables, filter to base tables).
 """
 
-import json
-
 import frappe
 import requests
 from frappe import _
@@ -274,7 +272,8 @@ class FileMakerConnection(Document):
 			result = _fetch_fm_schema(session, base_url)
 		finally:
 			session.close()
-		self.fm_schema = json.dumps(result, ensure_ascii=False)
+		# Assign dict — Frappe JSON field stores it correctly (avoid double-encoded strings).
+		self.fm_schema = result
 		self.fm_schema_fetched_at = frappe.utils.now_datetime()
 		self.save()
 		table_count = len(result.get("tables", []))

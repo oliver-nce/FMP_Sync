@@ -387,7 +387,7 @@ class FMTables(Document):
 	@frappe.whitelist()
 	def regenerate_column_mapping(self):
 		"""
-		Regenerate the column mapping from the FileMaker table schema via OData $metadata.
+		Regenerate the column mapping from the FileMaker table schema (fm_schema cache on FileMaker Connection).
 		Useful for tables mirrored before column_mapping was added.
 		Also detects auto-generated and stored calculation fields.
 		"""

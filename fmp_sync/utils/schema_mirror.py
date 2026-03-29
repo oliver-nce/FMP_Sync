@@ -60,16 +60,19 @@ def sanitize_fieldname(fieldname):
 def resolve_fieldname(col_name, label_overrides=None):
 	"""Determine the Frappe fieldname for a FM field.
 
-	For restricted source names (e.g. 'name'), if a label override is provided
-	the fieldname is derived from the custom label (e.g. 'Event Name' -> 'event_name').
-	Otherwise falls back to sanitize_fieldname (which appends '_field').
+	FileMaker allows spaces and mixed case in field names; Frappe fieldnames must be
+	lowercase identifiers (``frappe.scrub`` turns e.g. ``Address 1`` → ``address_1``).
+
+	For restricted source names (e.g. 'name'), if a label override is provided the
+	fieldname is derived from that label's scrubbed form.
 	"""
-	lower = col_name.lower()
-	if lower in RESTRICTED_FIELDNAMES and label_overrides and col_name in label_overrides:
+	col_lower = (col_name or "").lower()
+	if col_lower in RESTRICTED_FIELDNAMES and label_overrides and col_name in label_overrides:
 		derived = frappe.scrub(label_overrides[col_name])
-		if derived and derived not in RESTRICTED_FIELDNAMES:
+		if derived and derived.lower() not in RESTRICTED_FIELDNAMES:
 			return derived
-	return sanitize_fieldname(lower)
+	scrubbed = frappe.scrub(col_name or "") or "unnamed_field"
+	return sanitize_fieldname(scrubbed)
 
 
 def get_matching_fields_list(fm_table_doc):

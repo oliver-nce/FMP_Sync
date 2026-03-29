@@ -532,8 +532,20 @@ function show_preview_dialog(frm, preview_data, mode, new_table_name) {
 		<span class="text-muted"><strong>${__("Skip:")}</strong> ${__(
 			"Exclude a column from the Frappe DocType and from FM→Frappe sync (OData $select). You cannot skip columns used as Frappe ID, matching fields, or modified timestamp.",
 		)}</span>
+		<p style="margin: 10px 0 0 0;">
+			<strong>${__("All strings → Data?")}</strong>
+			<label class="small" style="margin-left: 10px; font-weight: normal;">
+				<input type="radio" name="fmp-all-str-data" value="N" checked> ${__("No")}
+			</label>
+			<label class="small" style="margin-left: 10px; font-weight: normal;">
+				<input type="radio" name="fmp-all-str-data" value="Y"> ${__("Yes")}
+			</label>
+			<span class="text-muted" style="margin-left: 10px;">${__(
+				"If Yes, only FM/OData text fields (e.g. String) use Data; numbers and dates are unchanged. No restores the proposed type per column.",
+			)}</span>
+		</p>
 		</div>
-		<div style="max-height: 500px; overflow-y: auto;">
+		<div class="fmp-schema-preview-scroll" style="min-height: 220px; max-height: min(75vh, 900px); overflow-y: auto;">
 			<table class="table table-bordered table-sm" style="font-size: 13px;">
 				<thead style="position: sticky; top: 0; background: var(--fg-color, #fff); z-index: 1;">
 					<tr>
@@ -661,8 +673,9 @@ function show_preview_dialog(frm, preview_data, mode, new_table_name) {
 		}
 		let label_style_attr = label_styles ? ` style="${label_styles}"` : "";
 
+		let db_type_attr = frappe.utils.escape_html(String(f.db_type || ""));
 		html += `
-			<tr ${row_class}>
+			<tr ${row_class} data-db-type="${db_type_attr}">
 				<td style="text-align: center;">
 					<input type="checkbox" class="skip-field-checkbox"
 						data-column="${f.column_name}" ${skip_checked}>
@@ -768,6 +781,96 @@ function show_preview_dialog(frm, preview_data, mode, new_table_name) {
 					.val($(this).data("original"));
 			}
 		});
+		_apply_all_strings_data_mode();
+	}
+
+	/** True only for FM text / OData string — not numeric, date, time, or boolean. */
+	function _is_fm_text_db_type(db) {
+		const raw = String(db || "").trim();
+		const lower = raw.toLowerCase();
+		if (!lower) {
+			return false;
+		}
+		// OData full type
+		if (lower.startsWith("edm.")) {
+			return lower === "edm.string";
+		}
+		// Short EDM name from schema (COLUMN_TYPE without Edm. prefix)
+		const nonText = new Set([
+			"int64",
+			"int32",
+			"int16",
+			"decimal",
+			"double",
+			"single",
+			"boolean",
+			"byte",
+			"sbyte",
+			"date",
+			"datetimeoffset",
+			"timeofday",
+			"guid",
+			"binary",
+			"stream",
+			// SQL / other whole-type names (not FM OData short names)
+			"int",
+			"integer",
+			"bigint",
+			"smallint",
+			"tinyint",
+			"float",
+			"numeric",
+			"real",
+			"money",
+			"bit",
+			"datetime",
+			"timestamp",
+			"smalldatetime",
+			"datetime2",
+			"time",
+			"year",
+		]);
+		if (nonText.has(lower)) {
+			return false;
+		}
+		if (lower === "string") {
+			return true;
+		}
+		// SQL-style text (non-OData paths)
+		if (/\b(varchar|nvarchar|text|longtext|mediumtext|tinytext|clob|nclob)\b/i.test(raw)) {
+			return true;
+		}
+		if (/\b(char|nchar)\b/i.test(raw) && !/\b(varchar|nvarchar)\b/i.test(raw)) {
+			return true;
+		}
+		return false;
+	}
+
+	function _apply_all_strings_data_mode() {
+		const yes =
+			d.$wrapper.find('input[name="fmp-all-str-data"]:checked').val() === "Y";
+		d.$wrapper.find(".field-type-select").each(function () {
+			const $sel = $(this);
+			if ($sel.prop("disabled")) {
+				return;
+			}
+			const $tr = $sel.closest("tr");
+			if ($tr.find(".skip-field-checkbox").is(":checked")) {
+				return;
+			}
+			const prev = $sel.val();
+			if (yes) {
+				const db = $tr.attr("data-db-type") || "";
+				if (_is_fm_text_db_type(db)) {
+					$sel.val("Data");
+				}
+			} else {
+				$sel.val($sel.data("original"));
+			}
+			if ($sel.val() !== prev) {
+				$sel.trigger("change");
+			}
+		});
 	}
 
 	d.$wrapper.on("change", ".skip-field-checkbox", function () {
@@ -779,6 +882,10 @@ function show_preview_dialog(frm, preview_data, mode, new_table_name) {
 	});
 
 	d.$wrapper.on("change", ".name-field-radio", _refresh_frappe_id_state);
+	// input + change: update every row as soon as Yes/No is selected (no extra click needed)
+	d.$wrapper.on("change input", 'input[name="fmp-all-str-data"]', function () {
+		_apply_all_strings_data_mode();
+	});
 	_refresh_frappe_id_state();
 
 	// Limit matching field selection to 3
@@ -832,6 +939,49 @@ function show_preview_dialog(frm, preview_data, mode, new_table_name) {
 	});
 
 	d.show();
+	_make_preview_dialog_movable_resizable(d);
+}
+
+/** Drag header to move; resize modal content from corner (CSS resize). */
+function _make_preview_dialog_movable_resizable(dialog) {
+	const $wrap = dialog.$wrapper;
+	const $dlg = $wrap.find(".modal-dialog").first();
+	const $content = $wrap.find(".modal-content").first();
+	const $header = $wrap.find(".modal-header").first();
+	if (!$dlg.length || !$content.length || !$header.length) {
+		return;
+	}
+	$content.css({
+		resize: "both",
+		overflow: "auto",
+		"min-width": "min(96vw, 560px)",
+		"min-height": "280px",
+		"max-width": "96vw",
+		"max-height": "92vh",
+	});
+	$header.css("cursor", "move");
+	const ns = "fmpSchemaPreviewDlg";
+	$header.off(`mousedown.${ns}`).on(`mousedown.${ns}`, function (e) {
+		if ($(e.target).closest("button, .close, a").length) {
+			return;
+		}
+		e.preventDefault();
+		$dlg.css("transform", "none");
+		const orig = $dlg.offset();
+		const startX = e.pageX;
+		const startY = e.pageY;
+		function onMove(ev) {
+			$dlg.offset({
+				left: orig.left + (ev.pageX - startX),
+				top: orig.top + (ev.pageY - startY),
+			});
+		}
+		function onUp() {
+			$(document).off(`mousemove.${ns} mouseup.${ns}`);
+		}
+		$(document).on(`mousemove.${ns}`, onMove);
+		$(document).on(`mouseup.${ns}`, onUp);
+	});
 }
 
 function show_sync_progress_dialog(frm) {

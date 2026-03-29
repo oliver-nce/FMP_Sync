@@ -1,25 +1,54 @@
-# Exclude the WordPress sync app — it lives in its own repo (NCE_Sync)
+# =============================================================================
+# Separate app (WordPress sync) — own repo; do not publish from this tree
+# =============================================================================
 nce_sync/
 
-# Planning / notes docs (not part of the installable app)
-CODING_PLAN.md
-PLAN_FMP_ADAPTATION.md
-PLAN_APP_FINALIZATION.md
-HANDOFF.md
-DESIGN_SPEC.md
-MATCHING_FIELDS_FEATURE.md
-V15_COMPATIBILITY_FIX.md
-WORKSPACE_CLEANUP_FIX.md
-FIELD_MATCHING_DIALOG_FIXES.md
-QUICKSTART.md
+# =============================================================================
+# Repo-root docs: planning, handoff, design notes (not the installable app)
+# =============================================================================
+/PLAN_*.md
+/CODING_PLAN.md
+/DESIGN_SPEC.md
+/HANDOFF.md
+/MATCHING_FIELDS_FEATURE.md
+/V15_COMPATIBILITY_FIX.md
+/WORKSPACE_CLEANUP_FIX.md
+/FIELD_MATCHING_DIALOG_FIXES.md
+/QUICKSTART.md
+/FM_Schema_Tables.md
+/FM_*.md
 
-# Python bytecode
-__pycache__/
-*.py[cod]
-*.pyo
-
-# Cursor / editor internals
+# =============================================================================
+# Local / machine-specific (never push)
+# =============================================================================
 .cursor/
 _internal/
 Docs/
 Frappe Context/
+
+# Archives & one-off backups
+*.zip
+*.tar.gz
+*.tgz
+
+# OS & editor noise
+.DS_Store
+Thumbs.db
+
+# Python tooling caches
+__pycache__/
+*.py[cod]
+*.pyo
+.ruff_cache/
+.pytest_cache/
+.mypy_cache/
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+
+# Secrets & local env
+.env
+.env.*
+!.env.example

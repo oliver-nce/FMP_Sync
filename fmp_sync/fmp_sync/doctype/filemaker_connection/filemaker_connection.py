@@ -73,11 +73,51 @@ def _fm_odata_follow_pages(session, url, params=None, page_size=FM_SCHEMA_ODATA_
 	return rows
 
 
-def _fm_odata_follow_pages_required(session, url, params=None):
-	rows = _fm_odata_follow_pages(session, url, params)
+def _fm_odata_follow_pages_required(session, url, params=None, page_size=FM_SCHEMA_ODATA_PAGE_TOP):
+	rows = _fm_odata_follow_pages(session, url, params, page_size=page_size)
 	if rows is None:
 		frappe.throw(_("OData resource not found (404): {0}").format(url))
 	return rows
+
+
+def _odata_string_literal(value):
+	"""OData single-quoted string; single quotes inside the value are doubled."""
+	return "'" + str(value).replace("'", "''") + "'"
+
+
+def _user_visible_table_rows(table_rows):
+	"""Table rows for non-system FM tables, in stable sort order."""
+	sort_key = lambda r: (r.get("TableName") or r.get("tableName") or "")
+	out = []
+	for tr in sorted(table_rows, key=sort_key):
+		tn = tr.get("TableName") or tr.get("tableName")
+		if not tn or tn.startswith("FileMaker_"):
+			continue
+		out.append(tr)
+	return out
+
+
+def _ordered_unique_base_names(user_rows):
+	seen = set()
+	order = []
+	for tr in user_rows:
+		tn = tr.get("TableName") or tr.get("tableName")
+		bn = tr.get("BaseTableName") or tr.get("baseTableName") or tn
+		if bn and bn not in seen:
+			seen.add(bn)
+			order.append(bn)
+	return order
+
+
+def _ordered_unique_table_names(user_rows):
+	seen = set()
+	order = []
+	for tr in user_rows:
+		tn = tr.get("TableName") or tr.get("tableName")
+		if tn and tn not in seen:
+			seen.add(tn)
+			order.append(tn)
+	return order
 
 
 def _fetch_fm_schema(session, base_url):
@@ -90,15 +130,57 @@ def _fetch_fm_schema(session, base_url):
 	)
 	field_params_bt = {"$select": "BaseTableName,FieldName,FieldType,FieldClass,FieldReps"}
 	field_params_f = {"$select": "TableName,FieldName,FieldType,FieldClass,FieldReps"}
+	fields_url_bt = f"{base_url}/FileMaker_BaseTableFields"
+	fields_url_f = f"{base_url}/FileMaker_Fields"
 
-	field_rows = _fm_odata_follow_pages(
-		session, f"{base_url}/FileMaker_BaseTableFields", field_params_bt
-	)
-	group_by_base = field_rows is not None
-	if not group_by_base:
-		field_rows = _fm_odata_follow_pages_required(
-			session, f"{base_url}/FileMaker_Fields", field_params_f
+	user_rows = _user_visible_table_rows(table_rows)
+	base_names = _ordered_unique_base_names(user_rows)
+	table_names = _ordered_unique_table_names(user_rows)
+
+	# One unfiltered GET for FileMaker_BaseTableFields can exceed what the path delivers
+	# (IncompleteRead). FileMaker may also ignore $top for this entity set. Fetch fields
+	# per base table with $filter so each response stays small.
+	field_rows = []
+	group_by_base = False
+	if not base_names:
+		group_by_base = True
+	else:
+		probe = _fm_odata_follow_pages(
+			session,
+			fields_url_bt,
+			{
+				**field_params_bt,
+				"$filter": f"BaseTableName eq {_odata_string_literal(base_names[0])}",
+			},
+			page_size=None,
 		)
+		if probe is None:
+			group_by_base = False
+			for tn in table_names:
+				part = _fm_odata_follow_pages_required(
+					session,
+					fields_url_f,
+					{
+						**field_params_f,
+						"$filter": f"TableName eq {_odata_string_literal(tn)}",
+					},
+					page_size=None,
+				)
+				field_rows.extend(part)
+		else:
+			group_by_base = True
+			field_rows = list(probe)
+			for bn in base_names[1:]:
+				part = _fm_odata_follow_pages_required(
+					session,
+					fields_url_bt,
+					{
+						**field_params_bt,
+						"$filter": f"BaseTableName eq {_odata_string_literal(bn)}",
+					},
+					page_size=None,
+				)
+				field_rows.extend(part)
 
 	fields_by_base = {}
 	fields_by_table = {}

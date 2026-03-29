@@ -10,6 +10,7 @@ Provides test_connection (GET service document) and discover_tables
 """
 
 import json
+import shlex
 import time
 from urllib.parse import quote
 
@@ -26,6 +27,8 @@ FM_SCHEMA_ODATA_PAGE_TOP = 2000
 FM_BASETABLEFIELDS_PAGE_SIZE = 100
 FM_ODATA_GET_RETRIES = 3
 FM_ODATA_RETRY_BASE_DELAY = 1.0
+# Set False after OData path is stable — shows curl (incl. password) before Refresh Schema Cache.
+FMP_SCHEMA_REFRESH_CURL_DIALOG = True
 
 
 def _fm_odata_url(url, params=None):
@@ -426,6 +429,32 @@ class FileMakerConnection(Document):
 		except Exception:
 			pass
 		return None
+
+	@frappe.whitelist()
+	def get_first_schema_refresh_curl(self):
+		"""Return shell-safe curl for the first OData GET used by refresh_fm_schema (testing).
+
+		Matches ``FileMaker_Tables`` + ``$select=TableName,BaseTableName,TableId`` (no ``$top``).
+		"""
+		if not FMP_SCHEMA_REFRESH_CURL_DIALOG:
+			return {"show": False, "curl": ""}
+		base_url = self.get_odata_base_url()
+		tables_url = f"{base_url}/FileMaker_Tables"
+		req_url = _fm_odata_url(tables_url, {"$select": "TableName,BaseTableName,TableId"})
+		user = self.username or ""
+		pwd = self.get_password("password") or ""
+		cred = shlex.quote(f"{user}:{pwd}")
+		url_q = shlex.quote(req_url)
+		curl = "\n".join(
+			[
+				f"curl -sS -u {cred} {url_q} \\",
+				"  -H 'Accept: application/json' \\",
+				"  -H 'OData-Version: 4.0' \\",
+				"  -H 'Accept-Encoding: identity' \\",
+				r"  -w '\nhttp_code:%{http_code} size:%{size_download}\n'",
+			]
+		)
+		return {"show": True, "curl": curl}
 
 	@frappe.whitelist()
 	def refresh_fm_schema(self):

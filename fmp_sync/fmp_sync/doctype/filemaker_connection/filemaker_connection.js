@@ -1,6 +1,98 @@
 // Copyright (c) 2026, Oliver Reid and contributors
 // For license information, please see license.txt
 
+function run_refresh_fm_schema(frm) {
+	frappe.call({
+		method: "refresh_fm_schema",
+		doc: frm.doc,
+		freeze: true,
+		freeze_message: __("Fetching FM schema..."),
+		callback: function (r) {
+			frm.reload_doc();
+			if (r.message) {
+				frappe.show_alert({
+					message: __(
+						"Schema cached: {0} table(s), {1} field(s)",
+						[r.message.table_count, r.message.field_count]
+					),
+					indicator: "green",
+				});
+			}
+		},
+	});
+}
+
+/** Dialog with copy-paste curl (password visible) before refresh; gated server-side by FMP_SCHEMA_REFRESH_CURL_DIALOG. */
+function show_schema_refresh_curl_dialog(frm, curl) {
+	const d = new frappe.ui.Dialog({
+		title: __("Test curl — first schema OData request (FileMaker_Tables)"),
+		fields: [
+			{
+				fieldtype: "HTML",
+				fieldname: "warn",
+				options:
+					"<p class='text-danger' style='margin-bottom:10px'>" +
+					__(
+						"Password is shown in the command below. For local testing only. Turn off with <code>FMP_SCHEMA_REFRESH_CURL_DIALOG = False</code> in <code>filemaker_connection.py</code> when finished."
+					) +
+					"</p>" +
+					"<p class='text-muted small'>" +
+					__(
+						"Copy the curl, run it in your terminal, then click Continue to run Refresh Schema Cache in Frappe."
+					) +
+					"</p>",
+			},
+			{
+				fieldtype: "HTML",
+				fieldname: "curl_wrap",
+				options:
+					'<textarea id="fmp-schema-curl-ta" class="form-control" readonly style="width:100%;min-height:160px;font-family:monospace;font-size:12px;white-space:pre;overflow:auto"></textarea>' +
+					'<p style="margin-top:8px"><button type="button" class="btn btn-default btn-sm" id="fmp-schema-curl-copy">' +
+					__("Copy to clipboard") +
+					"</button></p>",
+			},
+		],
+		primary_action_label: __("Continue — refresh schema"),
+		primary_action: function () {
+			d.hide();
+			run_refresh_fm_schema(frm);
+		},
+		secondary_action_label: __("Cancel"),
+		secondary_action: function () {
+			d.hide();
+		},
+	});
+	d.show();
+	const $ta = d.$wrapper.find("#fmp-schema-curl-ta");
+	$ta.val(curl);
+	d.$wrapper.find("#fmp-schema-curl-copy").on("click", function () {
+		const t = $ta.get(0);
+		t.focus();
+		t.select();
+		t.setSelectionRange(0, curl.length);
+		const done = function () {
+			frappe.show_alert({ message: __("Copied"), indicator: "green" });
+		};
+		if (navigator.clipboard && navigator.clipboard.writeText) {
+			navigator.clipboard.writeText(curl).then(done, function () {
+				try {
+					document.execCommand("copy");
+					done();
+				} catch (e) {
+					frappe.msgprint(__("Select the text and copy manually (Cmd/Ctrl+C)."));
+				}
+			});
+		} else {
+			try {
+				document.execCommand("copy");
+				done();
+			} catch (e) {
+				frappe.msgprint(__("Select the text and copy manually (Cmd/Ctrl+C)."));
+			}
+		}
+	});
+}
+
 frappe.ui.form.on("FileMaker Connection", {
 	refresh: function (frm) {
 		// Belt-and-suspenders: Desk hides read-only fields when value is empty (base_control.js).
@@ -70,21 +162,18 @@ frappe.ui.form.on("FileMaker Connection", {
 			__("Refresh Schema Cache"),
 			function () {
 				frappe.call({
-					method: "refresh_fm_schema",
+					method: "get_first_schema_refresh_curl",
 					doc: frm.doc,
-					freeze: true,
-					freeze_message: __("Fetching FM schema..."),
 					callback: function (r) {
-						frm.reload_doc();
-						if (r.message) {
-							frappe.show_alert({
-								message: __(
-									"Schema cached: {0} table(s), {1} field(s)",
-									[r.message.table_count, r.message.field_count]
-								),
-								indicator: "green",
-							});
+						const msg = r.message || {};
+						if (msg.show && msg.curl) {
+							show_schema_refresh_curl_dialog(frm, msg.curl);
+						} else {
+							run_refresh_fm_schema(frm);
 						}
+					},
+					error: function () {
+						run_refresh_fm_schema(frm);
 					},
 				});
 			},

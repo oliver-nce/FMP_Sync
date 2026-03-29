@@ -582,9 +582,11 @@ class FMTables(Document):
 		fm_conn = frappe.get_single("FileMaker Connection")
 		session, base_url = get_fm_session(fm_conn)
 
-		# Fetch one row via OData
-		url = f"{base_url}/{self.table_name}"
-		resp = session.get(url, params={"$top": "1"}, timeout=30)
+		# Fetch one row via OData (FM-safe query encoding — no + for spaces)
+		from fmp_sync.fmp_sync.doctype.filemaker_connection.filemaker_connection import _fm_odata_url
+
+		url = _fm_odata_url(f"{base_url}/{self.table_name}", {"$top": "1"})
+		resp = session.get(url, timeout=30)
 		resp.raise_for_status()
 		data = resp.json()
 		rows = data.get("value", [])

@@ -144,7 +144,10 @@ def _odata_get(session, url, params=None, timeout=30):
 	Raises:
 		Exception with descriptive error on failure
 	"""
-	resp = session.get(url, params=params, timeout=timeout)
+	from fmp_sync.fmp_sync.doctype.filemaker_connection.filemaker_connection import _fm_odata_url
+
+	url = _fm_odata_url(url, params)
+	resp = session.get(url, timeout=timeout)
 
 	if resp.status_code == 401:
 		frappe.throw(_("OData authentication failed (401). Check credentials."))

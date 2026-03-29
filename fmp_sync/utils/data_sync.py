@@ -156,14 +156,17 @@ def _odata_get(session, url, params=None, timeout=None):
 	elif isinstance(timeout, (int, float)):
 		t = int(timeout)
 		timeout = (min(30, max(5, t // 4)), t)
-	resp = session.get(url, params=params, timeout=timeout)
+	from fmp_sync.fmp_sync.doctype.filemaker_connection.filemaker_connection import _fm_odata_url
+
+	url = _fm_odata_url(url, params)
+	resp = session.get(url, timeout=timeout)
 
 	if resp.status_code == 401:
 		frappe.throw(_("OData authentication failed (401). Check credentials."))
 	if resp.status_code == 403:
 		frappe.throw(_("OData access forbidden (403). Check fmodata privilege."))
 	if resp.status_code == 404:
-		frappe.throw(_("OData resource not found (404): {0}").format(url))
+		frappe.throw(_("OData resource not found (404): {0}").format(resp.url))
 
 	resp.raise_for_status()
 	return resp.json()
@@ -242,6 +245,9 @@ def _build_odata_select(column_mapping):
 	were mirrored into the Frappe DocType). This avoids pulling container
 	fields, skipped fields, etc.
 
+	FileMaker rejects unquoted names with spaces (``Address%201`` → syntax error at ``1``);
+	non-simple FM names are double-quoted via ``_fm_join_select_clause``.
+
 	Args:
 		column_mapping: Dict mapping FM field names → Frappe fieldname info
 
@@ -250,7 +256,11 @@ def _build_odata_select(column_mapping):
 	"""
 	if not column_mapping:
 		return None
-	return ",".join(column_mapping.keys())
+	from fmp_sync.fmp_sync.doctype.filemaker_connection.filemaker_connection import (
+		_fm_join_select_clause,
+	)
+
+	return _fm_join_select_clause(list(column_mapping.keys()))
 
 
 # =============================================================================
@@ -277,7 +287,10 @@ def _count_fm_records(session, base_url, table_name, filter_expr=None, http_time
 		params["$filter"] = filter_expr
 
 	t = http_timeout if http_timeout is not None else ODATA_DEFAULT_TIMEOUT
-	resp = session.get(url, params=params, timeout=t)
+	from fmp_sync.fmp_sync.doctype.filemaker_connection.filemaker_connection import _fm_odata_url
+
+	url = _fm_odata_url(url, params if params else None)
+	resp = session.get(url, timeout=t)
 	resp.raise_for_status()
 
 	try:

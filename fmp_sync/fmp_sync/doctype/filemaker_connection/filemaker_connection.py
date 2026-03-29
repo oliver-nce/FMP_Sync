@@ -10,6 +10,7 @@ Provides test_connection (GET service document) and discover_tables
 """
 
 import json
+import re
 import shlex
 import time
 from urllib.parse import quote
@@ -29,6 +30,30 @@ FM_ODATA_GET_RETRIES = 3
 FM_ODATA_RETRY_BASE_DELAY = 1.0
 # Set False after OData path is stable — shows curl (incl. password) before Refresh Schema Cache.
 FMP_SCHEMA_REFRESH_CURL_DIALOG = True
+
+# FM OData: names like "Address 1" must not appear unquoted in URLs — e.g. Address%201 is parsed as
+# ambiguous %201 ("syntax error in URL at: '1'"). Double-quote non-simple identifiers (see internal spec).
+_FM_ODATA_SIMPLE_SELECT_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+def _fm_join_select_clause(fm_field_names):
+	"""Build a FileMaker-safe OData ``$select`` list (comma-separated).
+
+	Simple names (``mod_ts``, ``a_location_id``) pass through. Names with spaces,
+	``?``, or other punctuation are wrapped in double quotes per FM OData rules.
+	"""
+	if not fm_field_names:
+		return ""
+	parts = []
+	for raw in fm_field_names:
+		n = str(raw).strip() if raw is not None else ""
+		if not n:
+			continue
+		if _FM_ODATA_SIMPLE_SELECT_NAME.match(n):
+			parts.append(n)
+		else:
+			parts.append('"' + n.replace('"', '""') + '"')
+	return ",".join(parts)
 
 
 def _fm_odata_url(url, params=None):

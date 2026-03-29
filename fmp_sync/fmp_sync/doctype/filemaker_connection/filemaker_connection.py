@@ -22,6 +22,8 @@ from fmp_sync.utils.schema_mirror import _fm_field_class_computed, _fm_fieldtype
 
 # Smaller OData pages avoid truncated responses (IncompleteRead) on large system queries.
 FM_SCHEMA_ODATA_PAGE_TOP = 2000
+# BaseTableFields: ~100 rows ≈ ~31KB per page (curl); path to FMS often fails around ~100KB+.
+FM_BASETABLEFIELDS_PAGE_SIZE = 100
 FM_ODATA_GET_RETRIES = 3
 FM_ODATA_RETRY_BASE_DELAY = 1.0
 
@@ -56,6 +58,33 @@ def _fm_odata_apply_status(resp, url, *, allow_404=False):
 		frappe.throw(_("OData resource not found (404): {0}").format(url))
 	resp.raise_for_status()
 	return resp.json()
+
+
+def _fm_odata_collect_paged(session, url, params=None, page_size=100, *, allow_404=False):
+	"""Fetch every row using ``$top`` + ``$skip`` only (small bodies per request).
+
+	FileMaker may return the full ``FileMaker_BaseTableFields`` feed when ``$filter`` is
+	ignored, causing IncompleteRead; paging without filter matches verified curl behavior.
+	"""
+	base = dict(params or {})
+	all_rows = []
+	skip = 0
+	ps = max(1, int(page_size))
+	while True:
+		p = {**base, "$top": str(ps), "$skip": str(skip)}
+		req_url = _fm_odata_url(url, p)
+		resp = _fm_session_get_with_retries(session, req_url, params=None, timeout=30)
+		data = _fm_odata_apply_status(resp, req_url, allow_404=allow_404 and skip == 0)
+		if data is None:
+			return None
+		batch = list(data.get("value", []))
+		if not batch:
+			break
+		all_rows.extend(batch)
+		if len(batch) < ps:
+			break
+		skip += len(batch)
+	return all_rows
 
 
 def _fm_odata_follow_pages(session, url, params=None, page_size=FM_SCHEMA_ODATA_PAGE_TOP):
@@ -107,18 +136,6 @@ def _user_visible_table_rows(table_rows):
 	return out
 
 
-def _ordered_unique_base_names(user_rows):
-	seen = set()
-	order = []
-	for tr in user_rows:
-		tn = tr.get("TableName") or tr.get("tableName")
-		bn = tr.get("BaseTableName") or tr.get("baseTableName") or tn
-		if bn and bn not in seen:
-			seen.add(bn)
-			order.append(bn)
-	return order
-
-
 def _ordered_unique_table_names(user_rows):
 	seen = set()
 	order = []
@@ -144,45 +161,37 @@ def _fetch_fm_schema(session, base_url):
 	fields_url_f = f"{base_url}/FileMaker_Fields"
 
 	user_rows = _user_visible_table_rows(table_rows)
-	base_names = _ordered_unique_base_names(user_rows)
 	table_names = _ordered_unique_table_names(user_rows)
 
-	# One unfiltered GET for FileMaker_BaseTableFields can exceed what the path delivers
-	# (IncompleteRead). Fetch fields per base table with $filter; merge each response's
-	# ``value`` rows into ``field_rows`` (one OData round-trip per table, small bodies).
+	# $filter on FileMaker_BaseTableFields can be ignored server-side (full ~300KB body →
+	# IncompleteRead). Use small $top/$skip pages only (validated against this host).
 	field_rows = []
 	group_by_base = True
-	if not base_names:
+	if not table_names:
 		pass
 	else:
-		for i, bn in enumerate(base_names):
-			part = _fm_odata_follow_pages(
-				session,
-				fields_url_bt,
-				{
-					**field_params_bt,
-					"$filter": f"BaseTableName eq {_odata_string_literal(bn)}",
-				},
-				page_size=None,
-			)
-			if part is None:
-				if i == 0:
-					group_by_base = False
-					field_rows = []
-					for tn in table_names:
-						chunk = _fm_odata_follow_pages_required(
-							session,
-							fields_url_f,
-							{
-								**field_params_f,
-								"$filter": f"TableName eq {_odata_string_literal(tn)}",
-							},
-							page_size=None,
-						)
-						field_rows.extend(chunk)
-					break
-				frappe.throw(_("OData resource not found (404): {0}").format(fields_url_bt))
-			field_rows.extend(part)
+		field_rows = _fm_odata_collect_paged(
+			session,
+			fields_url_bt,
+			field_params_bt,
+			page_size=FM_BASETABLEFIELDS_PAGE_SIZE,
+			allow_404=True,
+		)
+		if field_rows is None:
+			group_by_base = False
+			field_rows = []
+			for tn in table_names:
+				chunk = _fm_odata_collect_paged(
+					session,
+					fields_url_f,
+					{
+						**field_params_f,
+						"$filter": f"TableName eq {_odata_string_literal(tn)}",
+					},
+					page_size=FM_BASETABLEFIELDS_PAGE_SIZE,
+					allow_404=False,
+				)
+				field_rows.extend(chunk)
 
 	fields_by_base = {}
 	fields_by_table = {}

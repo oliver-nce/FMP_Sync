@@ -93,11 +93,21 @@ function show_discovery_dialog(frm, tables_and_views) {
 				size: "large",
 			});
 
+			// Only list base tables (FileMaker OData also exposes table occurrences)
+			let base_tables_only = (tables_and_views || []).filter(
+				(item) => item.table_type === "BASE TABLE"
+			);
+
 			// Build the UI
 			let html = `
 				<div style="display: flex; gap: 20px;">
 					<div style="flex: 1;">
-						<h6>${__("Available Tables & Views")}</h6>
+						<h6>${__("Available Base Tables")}</h6>
+						<p class="text-muted small" style="margin-bottom: 8px;">
+							${__(
+								"Table occurrences are hidden. Only one row per underlying FileMaker base table."
+							)}
+						</p>
 						<input type="text" class="form-control" id="table-search" placeholder="${__(
 							"Search..."
 						)}" style="margin-bottom: 10px;">
@@ -116,7 +126,7 @@ function show_discovery_dialog(frm, tables_and_views) {
 
 			// Render available tables
 			let available_div = d.fields_dict.table_selector.$wrapper.find("#available-tables");
-			tables_and_views.forEach((item) => {
+			base_tables_only.forEach((item) => {
 				if (!selected_tables.includes(item.table_name)) {
 					let badge_class = item.table_type === "VIEW" ? "badge-info" : "badge-primary";
 					let row = $(`
@@ -126,8 +136,6 @@ function show_discovery_dialog(frm, tables_and_views) {
 						</div>
 					`);
 					row.on("click", function () {
-						console.log("Row clicked!", item.table_name, item.table_type);
-						alert("Clicked: " + item.table_name);
 						add_table_to_fm_tables(item.table_name, item.table_type, function () {
 							row.remove();
 							render_selected_tables();
@@ -136,6 +144,14 @@ function show_discovery_dialog(frm, tables_and_views) {
 					available_div.append(row);
 				}
 			});
+
+			if (base_tables_only.length === 0) {
+				available_div.html(
+					`<p class="text-muted" style="padding: 12px;">${__(
+						"No base tables returned. Check FileMaker_Tables access or connection."
+					)}</p>`
+				);
+			}
 
 			// Search functionality
 			d.fields_dict.table_selector.$wrapper.find("#table-search").on("input", function () {
@@ -219,8 +235,18 @@ function show_discovery_dialog(frm, tables_and_views) {
 	});
 }
 
+/** Map OData discovery `table_type` to FM Tables Select options ("Table" | "View"). */
+function normalize_table_type_for_fm_tables(discovered_type) {
+	if (!discovered_type) return "Table";
+	const t = String(discovered_type).trim();
+	const upper = t.toUpperCase();
+	if (upper === "VIEW" || t === "View") return "View";
+	// BASE TABLE, TABLE OCCURRENCE, TABLE — all map to FileMaker-backed tables
+	return "Table";
+}
+
 function add_table_to_fm_tables(table_name, table_type, callback) {
-	console.log("add_table_to_fm_tables called:", table_name, table_type);
+	const fm_table_type = normalize_table_type_for_fm_tables(table_type);
 
 	// First check if it already exists
 	frappe.call({
@@ -235,7 +261,6 @@ function add_table_to_fm_tables(table_name, table_type, callback) {
 
 			if (r.message && r.message.name) {
 				// Already exists
-				console.log("Table already exists:", r.message.name);
 				frappe.show_alert({
 					message: __("Table {0} already exists", [table_name]),
 					indicator: "orange",
@@ -243,14 +268,13 @@ function add_table_to_fm_tables(table_name, table_type, callback) {
 				if (callback) callback();
 			} else {
 				// Doesn't exist, create it
-				console.log("Creating new FM Tables record for:", table_name);
 				frappe.call({
 					method: "frappe.client.insert",
 					args: {
 						doc: {
 							doctype: "FM Tables",
 							table_name: table_name,
-							table_type: table_type,
+							table_type: fm_table_type,
 							sync_direction: "FM to Frappe",
 							mirror_status: "Pending",
 						},

@@ -64,6 +64,72 @@ function _label_from_fmp_fieldname(fn) {
 		.join(" ");
 }
 
+/** Copy-paste curl for first sync OData page ($top=500). Does not run sync; password visible. */
+function show_sync_curl_dialog(frm, curl) {
+	const d = new frappe.ui.Dialog({
+		title: __("Test curl — first sync OData page (500 rows)"),
+		fields: [
+			{
+				fieldtype: "HTML",
+				fieldname: "warn",
+				options:
+					"<p class='text-danger' style='margin-bottom:10px'>" +
+					__(
+						"Password is shown in the command below. For local testing only. This dialog does not start a sync — use Sync Now when you are ready.",
+					) +
+					"</p>" +
+					"<p class='text-muted small'>" +
+					__(
+						"Matches the first OData GET for this table: $top=500 and $select from your column mapping (same as Truncate & Replace first page).",
+					) +
+					"</p>",
+			},
+			{
+				fieldtype: "HTML",
+				fieldname: "curl_wrap",
+				options:
+					'<textarea id="fmp-sync-curl-ta" class="form-control" readonly style="width:100%;min-height:180px;font-family:monospace;font-size:12px;white-space:pre;overflow:auto"></textarea>' +
+					'<p style="margin-top:8px"><button type="button" class="btn btn-default btn-sm" id="fmp-sync-curl-copy">' +
+					__("Copy to clipboard") +
+					"</button></p>",
+			},
+		],
+		primary_action_label: __("Close"),
+		primary_action: function () {
+			d.hide();
+		},
+	});
+	d.show();
+	const $ta = d.$wrapper.find("#fmp-sync-curl-ta");
+	$ta.val(curl);
+	d.$wrapper.find("#fmp-sync-curl-copy").on("click", function () {
+		const t = $ta.get(0);
+		t.focus();
+		t.select();
+		t.setSelectionRange(0, curl.length);
+		const done = function () {
+			frappe.show_alert({ message: __("Copied"), indicator: "green" });
+		};
+		if (navigator.clipboard && navigator.clipboard.writeText) {
+			navigator.clipboard.writeText(curl).then(done, function () {
+				try {
+					document.execCommand("copy");
+					done();
+				} catch (e) {
+					frappe.msgprint(__("Select the text and copy manually (Cmd/Ctrl+C)."));
+				}
+			});
+		} else {
+			try {
+				document.execCommand("copy");
+				done();
+			} catch (e) {
+				frappe.msgprint(__("Select the text and copy manually (Cmd/Ctrl+C)."));
+			}
+		}
+	});
+}
+
 frappe.ui.form.on("FM Tables", {
 	after_save: function (frm) {
 		let desired = (
@@ -203,6 +269,28 @@ frappe.ui.form.on("FM Tables", {
 				},
 				__("Actions"),
 			);
+
+			// Show curl for first OData page (mirrored FM tables only; does not run sync)
+			if (frm.doc.doctype_source !== "Native") {
+				frm.add_custom_button(
+					__("Show Sync Curl"),
+					function () {
+						frappe.call({
+							method: "get_sync_curl",
+							doc: frm.doc,
+							freeze: true,
+							freeze_message: __("Building curl…"),
+							callback: function (r) {
+								const curl = r.message && r.message.curl;
+								if (curl) {
+									show_sync_curl_dialog(frm, curl);
+								}
+							},
+						});
+					},
+					__("Actions"),
+				);
+			}
 
 			// Truncate Data — clears all records, keeps DocType structure
 			frm.add_custom_button(

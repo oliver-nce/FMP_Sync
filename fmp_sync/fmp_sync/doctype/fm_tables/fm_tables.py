@@ -2,6 +2,7 @@
 # For license information, please see license.txt
 
 import json
+import shlex
 
 import frappe
 from frappe import _
@@ -673,3 +674,55 @@ class FMTables(Document):
 			indicator="blue",
 			alert=True,
 		)
+
+	@frappe.whitelist()
+	def get_sync_curl(self):
+		"""Shell-safe curl for the first OData page sync would use ($top=500, $select from mapping).
+
+		Does not run sync. Password is embedded for local terminal testing only.
+		"""
+		from fmp_sync.fmp_sync.doctype.filemaker_connection.filemaker_connection import _fm_odata_url
+		from fmp_sync.utils.data_sync import _build_odata_select
+
+		SYNC_CURL_TOP = 500
+
+		if self.doctype_source == "Native":
+			frappe.throw(_("Sync curl is only available for mirrored FileMaker tables, not Native-linked DocTypes."))
+
+		if not self.table_name:
+			frappe.throw(_("Table name is required."))
+
+		if self.mirror_status not in ("Mirrored", "Linked"):
+			frappe.throw(_("Table must be Mirrored or Linked."))
+
+		fm_conn = frappe.get_single("FileMaker Connection")
+		if not fm_conn:
+			frappe.throw(_("FileMaker Connection not configured"))
+
+		column_mapping = {}
+		if self.column_mapping:
+			column_mapping = json.loads(self.column_mapping)
+
+		select_fields = _build_odata_select(column_mapping)
+		params = {"$top": str(SYNC_CURL_TOP)}
+		if select_fields:
+			params["$select"] = select_fields
+
+		base_url = fm_conn.get_odata_base_url()
+		url = f"{base_url}/{self.table_name}"
+		req_url = _fm_odata_url(url, params)
+
+		user = fm_conn.username or ""
+		pwd = fm_conn.get_password("password") or ""
+		cred = shlex.quote(f"{user}:{pwd}")
+		url_q = shlex.quote(req_url)
+		curl = "\n".join(
+			[
+				f"curl -sS -u {cred} {url_q} \\",
+				"  -H 'Accept: application/json' \\",
+				"  -H 'OData-Version: 4.0' \\",
+				"  -H 'Accept-Encoding: identity' \\",
+				r"  -w '\nhttp_code:%{http_code} size:%{size_download}\n'",
+			]
+		)
+		return {"curl": curl}

@@ -10,32 +10,65 @@ Provides test_connection (GET service document) and discover_tables
 """
 
 import json
+import time
 
 import frappe
 import requests
 from frappe import _
 from frappe.model.document import Document
 
-from fmp_sync.utils.schema_mirror import _fm_field_class_computed, _fm_fieldtype_to_edm, _odata_get
+from fmp_sync.utils.schema_mirror import _fm_field_class_computed, _fm_fieldtype_to_edm
+
+# Smaller OData pages avoid truncated responses (IncompleteRead) on large system queries.
+FM_SCHEMA_ODATA_PAGE_TOP = 2000
+FM_ODATA_GET_RETRIES = 3
+FM_ODATA_RETRY_BASE_DELAY = 1.0
 
 
-def _fm_odata_follow_pages(session, url, params=None):
-	"""Collect all OData pages; return None if the first response is 404."""
-	resp = session.get(url, params=params, timeout=30)
+def _fm_session_get_with_retries(session, url, params=None, timeout=30):
+	"""GET with retries when the connection drops mid-body (ChunkedEncodingError)."""
+	for attempt in range(FM_ODATA_GET_RETRIES):
+		try:
+			return session.get(url, params=params, timeout=timeout)
+		except (requests.exceptions.ChunkedEncodingError, requests.exceptions.ConnectionError):
+			if attempt + 1 >= FM_ODATA_GET_RETRIES:
+				raise
+			time.sleep(FM_ODATA_RETRY_BASE_DELAY * (attempt + 1))
+
+
+def _fm_odata_apply_status(resp, url, *, allow_404=False):
 	if resp.status_code == 401:
 		frappe.throw(_("OData authentication failed (401). Check credentials."))
 	if resp.status_code == 403:
 		frappe.throw(_("OData access forbidden (403). Check fmodata privilege."))
 	if resp.status_code == 404:
-		return None
+		if allow_404:
+			return None
+		frappe.throw(_("OData resource not found (404): {0}").format(url))
 	resp.raise_for_status()
-	data = resp.json()
+	return resp.json()
+
+
+def _fm_odata_follow_pages(session, url, params=None, page_size=FM_SCHEMA_ODATA_PAGE_TOP):
+	"""Collect all OData pages; return None if the first response is 404.
+
+	First request includes ``$top`` when ``page_size`` is set so each HTTP body stays small;
+	FileMaker continues via ``@odata.nextLink``. Pass ``page_size=None`` to omit ``$top``.
+	"""
+	p = dict(params or {})
+	if page_size is not None:
+		p["$top"] = str(int(page_size))
+	resp = _fm_session_get_with_retries(session, url, params=p, timeout=30)
+	data = _fm_odata_apply_status(resp, url, allow_404=True)
+	if data is None:
+		return None
 	rows = list(data.get("value", []))
 	while True:
 		next_link = data.get("@odata.nextLink") or data.get("odata.nextLink")
 		if not next_link:
 			break
-		data = _odata_get(session, next_link)
+		nresp = _fm_session_get_with_retries(session, next_link, params=None, timeout=30)
+		data = _fm_odata_apply_status(nresp, next_link, allow_404=False)
 		rows.extend(data.get("value", []))
 	return rows
 

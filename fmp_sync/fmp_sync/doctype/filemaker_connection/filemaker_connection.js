@@ -3,6 +3,10 @@
 
 frappe.ui.form.on("FileMaker Connection", {
 	refresh: function (frm) {
+		// Frappe can hide empty read-only fields on Single DocTypes; keep Schema Cache visible.
+		frm.toggle_display("fm_schema", true);
+		frm.toggle_display("fm_schema_fetched_at", true);
+
 		// Test Connection button
 		frm.add_custom_button(__("Test Connection"), function () {
 			frappe.call({

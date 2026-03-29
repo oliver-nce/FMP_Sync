@@ -405,7 +405,7 @@ class FMTables(Document):
 			frappe.throw(_("FileMaker Connection not configured"))
 
 		session, base_url = get_fm_session(fm_conn)
-		schema = get_table_schema(session, base_url, self.table_name)
+		schema = get_table_schema((session, base_url), self.table_name, fm_conn_doc=fm_conn)
 		session.close()
 
 		# Build column mapping: FM field name -> {fieldname, is_stored_calc[, is_name, is_auto_generated]}

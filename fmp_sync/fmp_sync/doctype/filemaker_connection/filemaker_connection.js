@@ -49,6 +49,31 @@ frappe.ui.form.on("FileMaker Connection", {
 			);
 		});
 
+		frm.add_custom_button(
+			__("Refresh Schema Cache"),
+			function () {
+				frappe.call({
+					method: "refresh_fm_schema",
+					doc: frm.doc,
+					freeze: true,
+					freeze_message: __("Fetching FM schema..."),
+					callback: function (r) {
+						frm.reload_doc();
+						if (r.message) {
+							frappe.show_alert({
+								message: __(
+									"Schema cached: {0} table(s), {1} field(s)",
+									[r.message.table_count, r.message.field_count]
+								),
+								indicator: "green",
+							});
+						}
+					},
+				});
+			},
+			__("Maintenance")
+		);
+
 		// Cleanup Orphaned Shortcuts button
 		frm.add_custom_button(
 			__("Cleanup Workspace"),
@@ -98,8 +123,17 @@ function show_discovery_dialog(frm, tables_and_views) {
 				(item) => item.table_type === "BASE TABLE"
 			);
 
+			let cache_note = "";
+			if (frm.doc.fm_schema_fetched_at) {
+				cache_note = `<p class="text-muted small" style="margin-bottom: 12px;">${__(
+					"Schema cached at {0} — click Refresh Schema Cache to update.",
+					[frappe.datetime.str_to_user(frm.doc.fm_schema_fetched_at)]
+				)}</p>`;
+			}
+
 			// Build the UI
 			let html = `
+				${cache_note}
 				<div style="display: flex; gap: 20px;">
 					<div style="flex: 1;">
 						<h6>${__("Available Base Tables")}</h6>

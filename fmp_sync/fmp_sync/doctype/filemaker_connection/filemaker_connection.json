@@ -20,7 +20,10 @@
   "connection_message",
   "server_info_section",
   "server_product_info",
-  "odata_base_url"
+  "odata_base_url",
+  "schema_cache_section",
+  "fm_schema",
+  "fm_schema_fetched_at"
  ],
  "fields": [
   {
@@ -124,6 +127,24 @@
    "label": "OData Base URL",
    "read_only": 1,
    "description": "Computed: https://{host}:{port}/fmi/odata/v4/{database}"
+  },
+  {
+   "fieldname": "schema_cache_section",
+   "fieldtype": "Section Break",
+   "label": "Schema Cache",
+   "collapsible": 1
+  },
+  {
+   "fieldname": "fm_schema",
+   "fieldtype": "JSON",
+   "label": "Cached FM Schema",
+   "read_only": 1
+  },
+  {
+   "fieldname": "fm_schema_fetched_at",
+   "fieldtype": "Datetime",
+   "label": "Schema Fetched At",
+   "read_only": 1
   }
  ],
  "index_web_pages_for_search": 1,

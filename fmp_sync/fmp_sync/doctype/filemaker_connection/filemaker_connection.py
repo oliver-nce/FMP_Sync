@@ -9,10 +9,125 @@ Provides test_connection (GET service document) and discover_tables
 (GET FileMaker_Tables, filter to base tables).
 """
 
+import json
+
 import frappe
 import requests
 from frappe import _
 from frappe.model.document import Document
+
+from fmp_sync.utils.schema_mirror import _fm_field_class_computed, _fm_fieldtype_to_edm, _odata_get
+
+
+def _fm_odata_follow_pages(session, url, params=None):
+	"""Collect all OData pages; return None if the first response is 404."""
+	resp = session.get(url, params=params, timeout=30)
+	if resp.status_code == 401:
+		frappe.throw(_("OData authentication failed (401). Check credentials."))
+	if resp.status_code == 403:
+		frappe.throw(_("OData access forbidden (403). Check fmodata privilege."))
+	if resp.status_code == 404:
+		return None
+	resp.raise_for_status()
+	data = resp.json()
+	rows = list(data.get("value", []))
+	while True:
+		next_link = data.get("@odata.nextLink") or data.get("odata.nextLink")
+		if not next_link:
+			break
+		data = _odata_get(session, next_link)
+		rows.extend(data.get("value", []))
+	return rows
+
+
+def _fm_odata_follow_pages_required(session, url, params=None):
+	rows = _fm_odata_follow_pages(session, url, params)
+	if rows is None:
+		frappe.throw(_("OData resource not found (404): {0}").format(url))
+	return rows
+
+
+def _fetch_fm_schema(session, base_url):
+	"""Build full FM schema JSON (tables + fields) via OData system entities."""
+	tables_url = f"{base_url}/FileMaker_Tables"
+	table_rows = _fm_odata_follow_pages_required(
+		session,
+		tables_url,
+		{"$select": "TableName,BaseTableName,TableId"},
+	)
+	field_params_bt = {"$select": "BaseTableName,FieldName,FieldType,FieldClass,FieldReps"}
+	field_params_f = {"$select": "TableName,FieldName,FieldType,FieldClass,FieldReps"}
+
+	field_rows = _fm_odata_follow_pages(
+		session, f"{base_url}/FileMaker_BaseTableFields", field_params_bt
+	)
+	group_by_base = field_rows is not None
+	if not group_by_base:
+		field_rows = _fm_odata_follow_pages_required(
+			session, f"{base_url}/FileMaker_Fields", field_params_f
+		)
+
+	fields_by_base = {}
+	fields_by_table = {}
+	if group_by_base:
+		for row in field_rows:
+			bt = row.get("BaseTableName") or row.get("baseTableName")
+			if not bt:
+				continue
+			fields_by_base.setdefault(bt, []).append(row)
+	else:
+		for row in field_rows:
+			tn = row.get("TableName") or row.get("tableName")
+			if not tn:
+				continue
+			fields_by_table.setdefault(tn, []).append(row)
+
+	tables_out = []
+	iso = frappe.utils.now_datetime().isoformat()
+	sort_key = lambda r: (r.get("TableName") or r.get("tableName") or "")
+	for tr in sorted(table_rows, key=sort_key):
+		tn = tr.get("TableName") or tr.get("tableName")
+		bn = tr.get("BaseTableName") or tr.get("baseTableName")
+		if not tn or tn.startswith("FileMaker_"):
+			continue
+		is_base = (tn == bn) if bn else True
+		if group_by_base:
+			raw_fields = fields_by_base.get(bn, [])
+		else:
+			raw_fields = fields_by_table.get(tn, [])
+		fm_fields = []
+		for row in raw_fields:
+			fn = row.get("FieldName") or row.get("fieldName")
+			if not fn:
+				continue
+			ft = row.get("FieldType") or row.get("fieldType")
+			fcl = row.get("FieldClass") or row.get("fieldClass") or "Normal"
+			freps = row.get("FieldReps") or row.get("fieldReps") or 1
+			try:
+				freps = int(freps)
+			except (TypeError, ValueError):
+				freps = 1
+			edm = _fm_fieldtype_to_edm(ft)
+			computed = _fm_field_class_computed(fcl)
+			fm_fields.append({
+				"COLUMN_NAME": fn,
+				"EDM_TYPE": edm,
+				"COLUMN_TYPE": edm.replace("Edm.", ""),
+				"IS_NULLABLE": "YES",
+				"MAX_LENGTH": None,
+				"COMPUTED": computed,
+				"AUTO_GENERATED": False,
+				"VERSION_ID": False,
+				"MAX_REPETITIONS": freps,
+				"FIELD_CLASS": fcl,
+			})
+		tables_out.append({
+			"table_name": tn,
+			"base_table_name": bn or tn,
+			"is_base_table": is_base,
+			"fields": fm_fields,
+		})
+	return {"fetched_at": iso, "tables": tables_out}
 
 
 class FileMakerConnection(Document):
@@ -152,6 +267,25 @@ class FileMakerConnection(Document):
 		return None
 
 	@frappe.whitelist()
+	def refresh_fm_schema(self):
+		"""Fetch FileMaker_Tables + fields OData, store JSON on this connection (singleton)."""
+		session, base_url = self.get_odata_session()
+		try:
+			result = _fetch_fm_schema(session, base_url)
+		finally:
+			session.close()
+		self.fm_schema = json.dumps(result, ensure_ascii=False)
+		self.fm_schema_fetched_at = frappe.utils.now_datetime()
+		self.save()
+		table_count = len(result.get("tables", []))
+		field_count = sum(len(t["fields"]) for t in result.get("tables", []))
+		frappe.msgprint(
+			_("Schema cached: {0} table(s), {1} field(s).").format(table_count, field_count),
+			indicator="green",
+		)
+		return {"table_count": table_count, "field_count": field_count}
+
+	@frappe.whitelist()
 	def discover_tables(self):
 		"""Discover all base tables from FileMaker via OData.
 
@@ -204,6 +338,11 @@ class FileMakerConnection(Document):
 					) else "TABLE OCCURRENCE",
 				}
 				result.append(entry)
+
+			try:
+				self.refresh_fm_schema()
+			except Exception:
+				frappe.log_error(title="FMP Sync: Schema cache refresh failed")
 
 			return result
 

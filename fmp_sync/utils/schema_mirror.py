@@ -16,9 +16,11 @@ Data flow:
 """
 
 import json
+import time
 import xml.etree.ElementTree as ET
 
 import frappe
+import requests.exceptions as req_exc
 from frappe import _
 
 from fmp_sync.utils.workspace_utils import add_to_workspace
@@ -41,6 +43,11 @@ RESTRICTED_FIELDNAMES = (
 	"flags",
 	"docstatus",
 )
+
+# $metadata CSDL can be multi-megabyte; chunked transfers sometimes truncate (proxy / idle).
+_ODATA_METADATA_RETRIES = 4
+_ODATA_METADATA_TIMEOUT = (45, 360)  # (connect, read) seconds
+_ODATA_METADATA_CHUNK = 262144
 
 # OData CSDL XML namespaces
 _NS = {
@@ -217,8 +224,8 @@ def _discover_base_tables(session, base_url):
 	return result
 
 
-def get_table_schema(session_or_tuple, table_name):
-	"""Get field schema for a FileMaker table via OData $metadata.
+def get_table_schema(session_or_tuple, table_name, fm_conn_doc=None):
+	"""Get field schema for a FileMaker table via cached FM schema or OData $metadata.
 
 	Parses the CSDL XML to extract Property definitions for the named EntityType,
 	then classifies each field (include / skip).
@@ -226,6 +233,7 @@ def get_table_schema(session_or_tuple, table_name):
 	Args:
 		session_or_tuple: (session, base_url) tuple
 		table_name: FileMaker table name
+		fm_conn_doc: Optional FileMaker Connection doc — when fm_schema is set, cache is tried first
 
 	Returns:
 		Dict with:
@@ -236,6 +244,17 @@ def get_table_schema(session_or_tuple, table_name):
 		  skipped     — list of dicts for fields that were skipped (unstored calcs, containers, repeating)
 	"""
 	session, base_url = session_or_tuple
+	if fm_conn_doc is not None:
+		raw_schema = getattr(fm_conn_doc, "fm_schema", None)
+		if raw_schema:
+			rs = raw_schema if isinstance(raw_schema, str) else json.dumps(raw_schema)
+			if rs and str(rs).strip():
+				cached = _get_table_schema_from_cache(fm_conn_doc, table_name)
+				if cached is not None:
+					return cached
+				frappe.logger("fmp_sync").warning(
+					"FM schema cache miss for table %r; falling back to $metadata", table_name
+				)
 	root = _odata_get_xml(session, f"{base_url}/$metadata")
 
 	# Find the EntityType matching table_name
@@ -341,6 +360,121 @@ def _property_to_field_dict(prop_element):
 	}
 
 
+def _fm_fieldtype_to_edm(field_type_str):
+	"""Map FileMaker_Fields.FieldType SQL keyword to OData EDM type string."""
+	if not field_type_str:
+		return "Edm.String"
+	raw = str(field_type_str).strip().upper()
+	base = raw.split("(")[0].strip()
+	mapping = {
+		"VARCHAR": "Edm.String",
+		"TEXT": "Edm.String",
+		"INT": "Edm.Int64",
+		"NUMERIC": "Edm.Decimal",
+		"DECIMAL": "Edm.Decimal",
+		"DATE": "Edm.Date",
+		"TIME": "Edm.TimeOfDay",
+		"TIMESTAMP": "Edm.DateTimeOffset",
+		"BLOB": "Edm.Binary",
+		"VARBINARY": "Edm.Binary",
+	}
+	return mapping.get(base, "Edm.String")
+
+
+def _fm_field_class_computed(field_class_str):
+	"""True for Calculated/Summary (unstored calcs); Normal → False."""
+	if not field_class_str:
+		return False
+	fc = str(field_class_str).strip()
+	return fc in ("Calculated", "Summary")
+
+
+def _cache_row_to_field_dict(f):
+	"""Normalize a cached FM schema field entry to the dict shape used by classify_field."""
+	name = f.get("COLUMN_NAME")
+	edm = f.get("EDM_TYPE") or "Edm.String"
+	fc = f.get("FIELD_CLASS") or "Normal"
+	computed = f.get("COMPUTED")
+	if computed is None:
+		computed = _fm_field_class_computed(fc)
+	max_reps = f.get("MAX_REPETITIONS", 1)
+	try:
+		max_reps = int(max_reps) if max_reps is not None else 1
+	except (TypeError, ValueError):
+		max_reps = 1
+	ml = f.get("MAX_LENGTH")
+	if ml is not None and ml != "":
+		try:
+			ml = int(ml)
+		except (TypeError, ValueError):
+			ml = None
+	else:
+		ml = None
+	col_type = f.get("COLUMN_TYPE")
+	if not col_type:
+		col_type = edm.replace("Edm.", "") if edm else "String"
+	return {
+		"COLUMN_NAME": name,
+		"EDM_TYPE": edm,
+		"IS_NULLABLE": f.get("IS_NULLABLE") or "YES",
+		"MAX_LENGTH": ml,
+		"COMPUTED": bool(computed),
+		"AUTO_GENERATED": bool(f.get("AUTO_GENERATED", False)),
+		"VERSION_ID": bool(f.get("VERSION_ID", False)),
+		"MAX_REPETITIONS": max_reps,
+		"COLUMN_TYPE": col_type,
+	}
+
+
+def _get_table_schema_from_cache(fm_conn_doc, table_name):
+	"""Build get_table_schema-shaped dict from fm_conn_doc.fm_schema JSON, or None if miss/invalid."""
+	raw = getattr(fm_conn_doc, "fm_schema", None)
+	if not raw:
+		return None
+	if isinstance(raw, dict):
+		data = raw
+	else:
+		s = str(raw).strip()
+		if not s:
+			return None
+		try:
+			data = json.loads(s)
+		except (TypeError, ValueError):
+			return None
+	tables = data.get("tables") or []
+	entry = None
+	for t in tables:
+		if t.get("table_name") == table_name:
+			entry = t
+			break
+	if entry is None:
+		tn_lower = (table_name or "").lower()
+		for t in tables:
+			if (t.get("table_name") or "").lower() == tn_lower:
+				entry = t
+				break
+	if entry is None:
+		return None
+	columns = []
+	skipped = []
+	for f in entry.get("fields") or []:
+		field_dict = _cache_row_to_field_dict(f)
+		if not field_dict.get("COLUMN_NAME"):
+			continue
+		classification = classify_field(field_dict)
+		if classification == "include":
+			columns.append(field_dict)
+		else:
+			skipped.append({**field_dict, "skip_reason": classification})
+	return {
+		"columns": columns,
+		"primary_key": ["ROWID"],
+		"unique_keys": {},
+		"indexes": {},
+		"skipped": skipped,
+	}
+
+
 # ---------------------------------------------------------------------------
 # Field classification  (NEW)
 # ---------------------------------------------------------------------------
@@ -439,7 +573,7 @@ map_mariadb_to_frappe_type = map_edm_to_frappe_type
 # ---------------------------------------------------------------------------
 
 
-def detect_timestamp_fields(session_or_tuple, table_name):
+def detect_timestamp_fields(session_or_tuple, table_name, fm_conn_doc=None):
 	"""Auto-detect created and modified timestamp fields from OData schema.
 
 	Looks for Edm.DateTimeOffset properties. Uses:
@@ -449,12 +583,13 @@ def detect_timestamp_fields(session_or_tuple, table_name):
 	Args:
 		session_or_tuple: (session, base_url) tuple
 		table_name: FileMaker table name
+		fm_conn_doc: Optional FileMaker Connection doc for schema cache
 
 	Returns:
 		Dict with 'created' and 'modified' field names (or None)
 	"""
 	try:
-		schema = get_table_schema(session_or_tuple, table_name)
+		schema = get_table_schema(session_or_tuple, table_name, fm_conn_doc=fm_conn_doc)
 
 		created_field = None
 		modified_field = None
@@ -585,8 +720,8 @@ def preview_table_schema(fm_conn_doc, fm_table_doc):
 	session_tuple = get_fm_session(fm_conn_doc)
 	table_name = fm_table_doc.table_name
 
-	schema = get_table_schema(session_tuple, table_name)
-	timestamps = detect_timestamp_fields(session_tuple, table_name)
+	schema = get_table_schema(session_tuple, table_name, fm_conn_doc=fm_conn_doc)
+	timestamps = detect_timestamp_fields(session_tuple, table_name, fm_conn_doc=fm_conn_doc)
 	session_tuple[0].close()
 
 	# Get previously selected matching fields
@@ -685,11 +820,11 @@ def mirror_table_schema(
 		session_tuple = get_fm_session(fm_conn_doc)
 		table_name = fm_table_doc.table_name
 
-		schema = get_table_schema(session_tuple, table_name)
+		schema = get_table_schema(session_tuple, table_name, fm_conn_doc=fm_conn_doc)
 
 		# Auto-detect timestamp fields if not already set by user
 		if not fm_table_doc.created_timestamp_field or not fm_table_doc.modified_timestamp_field:
-			timestamps = detect_timestamp_fields(session_tuple, table_name)
+			timestamps = detect_timestamp_fields(session_tuple, table_name, fm_conn_doc=fm_conn_doc)
 			if not fm_table_doc.created_timestamp_field and timestamps["created"]:
 				fm_table_doc.created_timestamp_field = timestamps["created"]
 			if not fm_table_doc.modified_timestamp_field and timestamps["modified"]:

@@ -37,7 +37,11 @@ def _fm_odata_url(url, params=None):
 	"""
 	if not params:
 		return url
-	parts = [f"{k}={quote(str(v), safe='')}" for k, v in params.items()]
+	parts = []
+	for k, v in params.items():
+		# Leave commas in $select unencoded (curl-style); FileMaker may 400 on %2C-separated lists.
+		safe = "," if k == "$select" else ""
+		parts.append(f"{k}={quote(str(v), safe=safe)}")
 	return f"{url}?{'&'.join(parts)}"
 
 
@@ -158,10 +162,12 @@ def _ordered_unique_table_names(user_rows):
 def _fetch_fm_schema(session, base_url):
 	"""Build full FM schema JSON (tables + fields) via OData system entities."""
 	tables_url = f"{base_url}/FileMaker_Tables"
+	# FileMaker_Tables rejects $top=2000 (400); payload is small (~hundreds of rows) without $top.
 	table_rows = _fm_odata_follow_pages_required(
 		session,
 		tables_url,
 		{"$select": "TableName,BaseTableName,TableId"},
+		page_size=None,
 	)
 	field_params_bt = {"$select": "BaseTableName,FieldName,FieldType,FieldClass,FieldReps"}
 	field_params_f = {"$select": "TableName,FieldName,FieldType,FieldClass,FieldReps"}

@@ -22,6 +22,7 @@
     "auto_sync_active",
     "write_back_mode",
     "listen_for_changes",
+    "odata_batch_size",
     "sync_status_section",
     "last_synced",
     "last_sync_status",
@@ -163,6 +164,13 @@
       "fieldname": "listen_for_changes",
       "fieldtype": "Check",
       "label": "Listen For Changes"
+    },
+    {
+      "fieldname": "odata_batch_size",
+      "fieldtype": "Int",
+      "label": "OData Batch Size",
+      "default": "0",
+      "description": "Number of rows per OData request ($top/$skip). 0 or blank = let FileMaker decide page size (server default ~1000). Lower values (100–500) reduce IncompleteRead errors on unreliable connections."
     },
     {
       "fieldname": "sync_status_section",

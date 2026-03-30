@@ -200,22 +200,44 @@ def _odata_get_with_retries(session, url, timeout=None, headers=None):
 			time.sleep(delay)
 
 
-def odata_get_all(session, url, params=None, timeout=None):
-	"""Paginated OData GET — follows ``@odata.nextLink`` until exhausted.
+def odata_get_all(session, url, params=None, timeout=None, page_size=None):
+	"""Paginated OData GET — collects all records across multiple requests.
 
-	FileMaker Server returns ~1 000 records per page by default.
+	Two pagination strategies:
+
+	1. **Explicit $top/$skip** (when ``page_size`` is set) — each request asks for
+	   exactly ``page_size`` rows.  This keeps every HTTP response body small and
+	   avoids the ``IncompleteRead`` / ``ChunkedEncodingError`` that FileMaker
+	   triggers on large payloads.  Pagination stops when a page returns fewer
+	   than ``page_size`` rows.
+
+	2. **Server-driven** (when ``page_size`` is None/0) — follows
+	   ``@odata.nextLink`` until FM says there are no more pages.  This is the
+	   original behaviour and relies on FM's default page size (~1 000 rows).
 
 	Args:
 		session: requests.Session with Basic Auth
 		url: Initial OData entity-set URL
 		params: Initial query params ($filter, $select, $orderby, …)
 		timeout: Per-request timeout (int or ``(connect, read)`` tuple)
+		page_size: Rows per request.  None or 0 = server-driven paging.
 
 	Returns:
 		list of record dicts (all pages combined)
 	"""
 	if timeout is None:
 		timeout = DEFAULT_TIMEOUT
+
+	page_size = int(page_size) if page_size else 0
+
+	if page_size > 0:
+		return _odata_get_all_batched(session, url, params, timeout, page_size)
+	else:
+		return _odata_get_all_nextlink(session, url, params, timeout)
+
+
+def _odata_get_all_nextlink(session, url, params, timeout):
+	"""Server-driven pagination via @odata.nextLink."""
 	all_records = []
 	next_url = url
 	next_params = params
@@ -223,10 +245,33 @@ def odata_get_all(session, url, params=None, timeout=None):
 	while next_url:
 		data = odata_get(session, next_url, params=next_params, timeout=timeout)
 		all_records.extend(data.get("value", []))
-
-		# After the first request @odata.nextLink is absolute with params baked in.
 		next_url = data.get("@odata.nextLink")
 		next_params = None
+
+	return all_records
+
+
+def _odata_get_all_batched(session, url, params, timeout, page_size):
+	"""Client-driven pagination via explicit $top/$skip."""
+	all_records = []
+	skip = 0
+	base_params = dict(params or {})
+
+	while True:
+		page_params = dict(base_params)
+		page_params["$top"] = str(page_size)
+		if skip > 0:
+			page_params["$skip"] = str(skip)
+
+		data = odata_get(session, url, params=page_params, timeout=timeout)
+		batch = data.get("value", [])
+		all_records.extend(batch)
+
+		if len(batch) < page_size:
+			# Last page — fewer rows than requested means we're done.
+			break
+
+		skip += len(batch)
 
 	return all_records
 
@@ -353,6 +398,7 @@ def get_fm_data(
 	select=None,
 	filter_expr=None,
 	top=None,
+	page_size=None,
 	timeout=None,
 ):
 	"""Retrieve record data from a FileMaker table.
@@ -374,6 +420,9 @@ def get_fm_data(
 		# First N rows
 		rows = get_fm_data("Contacts", top=1)
 
+		# Batched (100 rows per request)
+		rows = get_fm_data("Contacts", page_size=100)
+
 	Args:
 		table_name: FileMaker table / table-occurrence name
 		fm_conn_doc: FileMaker Connection doc (loads singleton if None)
@@ -382,6 +431,8 @@ def get_fm_data(
 		select: OData ``$select`` string (comma-separated FM field names)
 		filter_expr: OData ``$filter`` expression string
 		top: Limit to first N records (``$top``)
+		page_size: Rows per OData request ($top/$skip batching).
+		           None or 0 = server-driven paging.
 		timeout: Per-request HTTP timeout (int or (connect, read) tuple)
 
 	Returns:
@@ -399,6 +450,7 @@ def get_fm_data(
 			select=select,
 			filter_expr=filter_expr,
 			top=top,
+			page_size=page_size,
 			timeout=timeout,
 		)
 	finally:
@@ -472,8 +524,8 @@ def _metadata_table_schema(fm_conn_doc, table_name):
 
 
 def _data_fetch_records(session, base_url, table_name, *, select=None,
-                        filter_expr=None, top=None, timeout=None):
-	"""OData backend: fetch records with optional $filter / $select / $top."""
+                        filter_expr=None, top=None, page_size=None, timeout=None):
+	"""OData backend: fetch records with optional $filter / $select / $top / batching."""
 	url = f"{base_url}/{table_name}"
 	params = {}
 
@@ -489,4 +541,7 @@ def _data_fetch_records(session, base_url, table_name, *, select=None,
 		data = odata_get(session, url, params=params if params else None, timeout=timeout)
 		return data.get("value", [])
 	else:
-		return odata_get_all(session, url, params=params if params else None, timeout=timeout)
+		return odata_get_all(
+			session, url, params=params if params else None,
+			timeout=timeout, page_size=page_size,
+		)

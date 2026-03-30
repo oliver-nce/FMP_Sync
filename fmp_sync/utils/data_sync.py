@@ -137,6 +137,7 @@ def _fetch_changed_records(
 	cutoff,
 	select_fields=None,
 	http_timeout=None,
+	page_size=None,
 ):
 	"""Fetch records changed since cutoff via OData $filter.
 
@@ -149,6 +150,7 @@ def _fetch_changed_records(
 		cutoff: datetime cutoff (None = fetch all records)
 		select_fields: Optional $select string
 		http_timeout: Per-request timeout for OData (tuple or int)
+		page_size: Rows per OData request (0/None = server paging)
 
 	Returns:
 		list of record dicts from OData
@@ -162,10 +164,10 @@ def _fetch_changed_records(
 	if select_fields:
 		params["$select"] = select_fields
 
-	return _odata_get_all(session, url, params=params if params else None, timeout=http_timeout)
+	return _odata_get_all(session, url, params=params if params else None, timeout=http_timeout, page_size=page_size)
 
 
-def _fetch_all_records(session, base_url, table_name, select_fields=None, http_timeout=None):
+def _fetch_all_records(session, base_url, table_name, select_fields=None, http_timeout=None, page_size=None):
 	"""Fetch all records from a FM table (for Truncate & Replace).
 
 	Args:
@@ -174,6 +176,7 @@ def _fetch_all_records(session, base_url, table_name, select_fields=None, http_t
 		table_name: FM table name
 		select_fields: Optional $select string
 		http_timeout: Per-request timeout for OData (tuple or int)
+		page_size: Rows per OData request (0/None = server paging)
 
 	Returns:
 		list of record dicts from OData
@@ -182,7 +185,7 @@ def _fetch_all_records(session, base_url, table_name, select_fields=None, http_t
 	params = {}
 	if select_fields:
 		params["$select"] = select_fields
-	return _odata_get_all(session, url, params=params if params else None, timeout=http_timeout)
+	return _odata_get_all(session, url, params=params if params else None, timeout=http_timeout, page_size=page_size)
 
 
 def _fetch_fm_key_set(
@@ -193,6 +196,7 @@ def _fetch_fm_key_set(
 	reverse_mapping,
 	column_mapping,
 	http_timeout=None,
+	page_size=None,
 ):
 	"""Fetch all matching key values from FileMaker via OData.
 
@@ -206,6 +210,7 @@ def _fetch_fm_key_set(
 		reverse_mapping: Dict mapping Frappe fieldnames → FM field names
 		column_mapping: Dict mapping FM field names → Frappe fieldname info
 		http_timeout: Per-request timeout for OData (tuple or int)
+		page_size: Rows per OData request (0/None = server paging)
 
 	Returns:
 		set of key tuples (normalised to strings)
@@ -219,7 +224,7 @@ def _fetch_fm_key_set(
 	select_str = ",".join(fm_key_columns)
 	url = f"{base_url}/{table_name}"
 	rows = _odata_get_all(
-		session, url, params={"$select": select_str}, timeout=http_timeout
+		session, url, params={"$select": select_str}, timeout=http_timeout, page_size=page_size
 	)
 
 	# Build set of normalised key tuples
@@ -242,6 +247,7 @@ def _fetch_records_by_keys(
 	key_set,
 	select_fields=None,
 	http_timeout=None,
+	page_size=None,
 ):
 	"""Fetch full rows from FM for a specific set of matching-key tuples.
 
@@ -295,7 +301,7 @@ def _fetch_records_by_keys(
 			params = {"$filter": filter_expr}
 			if select_fields:
 				params["$select"] = select_fields
-			rows.extend(_odata_get_all(session, url, params=params, timeout=http_timeout))
+			rows.extend(_odata_get_all(session, url, params=params, timeout=http_timeout, page_size=page_size))
 
 		return rows
 
@@ -304,7 +310,7 @@ def _fetch_records_by_keys(
 	if select_fields:
 		params["$select"] = select_fields
 	all_rows = _odata_get_all(
-		session, url, params=params if params else None, timeout=http_timeout
+		session, url, params=params if params else None, timeout=http_timeout, page_size=page_size
 	)
 
 	result = []
@@ -633,6 +639,9 @@ def _sync_ts_compare(
 	matching_keys = _get_matching_keys(fm_table_doc)
 	sync_user = getattr(fm_table_doc, "_sync_user", None)
 
+	# OData batch size from table config (0 = server-driven paging)
+	page_size = getattr(fm_table_doc, "odata_batch_size", None) or 0
+
 	# Load column mapping (FM field name -> {fieldname, ...})
 	column_mapping = None
 	if fm_table_doc.column_mapping:
@@ -653,6 +662,7 @@ def _sync_ts_compare(
 		reverse_mapping,
 		column_mapping,
 		http_timeout=http_timeout,
+		page_size=page_size,
 	)
 	rows_deleted, frappe_key_set = _delete_orphans(frappe_doctype, matching_keys, fm_key_set)
 
@@ -686,6 +696,7 @@ def _sync_ts_compare(
 		cutoff_odata,
 		select_fields=select_fields,
 		http_timeout=http_timeout,
+		page_size=page_size,
 	)
 
 	# Build set of keys already covered by the TS-changed fetch so we
@@ -709,6 +720,7 @@ def _sync_ts_compare(
 		missing_keys_only,
 		select_fields=select_fields,
 		http_timeout=http_timeout,
+		page_size=page_size,
 	)
 
 	total_to_sync = len(changed_rows) + len(missing_rows)
@@ -796,6 +808,9 @@ def _sync_truncate_replace(
 		http_timeout = odata_http_timeout(fm_conn_doc)
 	table_name = fm_table_doc.table_name
 
+	# OData batch size from table config (0 = server-driven paging)
+	page_size = getattr(fm_table_doc, "odata_batch_size", None) or 0
+
 	# Load column mapping (FM field name -> {fieldname, ...})
 	column_mapping = None
 	if fm_table_doc.column_mapping:
@@ -815,6 +830,7 @@ def _sync_truncate_replace(
 		table_name,
 		select_fields=select_fields,
 		http_timeout=http_timeout,
+		page_size=page_size,
 	)
 	total_to_sync = len(all_rows)
 

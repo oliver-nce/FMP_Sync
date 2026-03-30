@@ -230,7 +230,7 @@ def _fetch_fm_key_set(
 	# Build set of normalised key tuples
 	fm_key_set = set()
 	for row in rows:
-		converted = _convert_row(row, None, column_mapping)
+		converted = _convert_row(row, column_mapping)
 		key_tuple = tuple(_normalize_key_value(converted.get(k)) for k in matching_keys)
 		fm_key_set.add(key_tuple)
 
@@ -315,7 +315,7 @@ def _fetch_records_by_keys(
 
 	result = []
 	for row in all_rows:
-		converted = _convert_row(row, None, column_mapping)
+		converted = _convert_row(row, column_mapping)
 		key_tuple = tuple(_normalize_key_value(converted.get(k)) for k in matching_keys)
 		if key_tuple in key_set:
 			result.append(row)

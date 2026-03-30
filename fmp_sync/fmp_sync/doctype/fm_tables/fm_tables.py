@@ -669,14 +669,17 @@ class FMTables(Document):
 			alert=True,
 		)
 
-	def _sync_first_page_fm_rows(self):
-		"""Same OData GET as sync’s first page: ``$top=500`` and ``$select`` from column mapping.
+	def _sync_first_page_fm_rows(self, top=None):
+		"""OData GET with ``$top`` and ``$select`` from column mapping.
+
+		Args:
+			top: Row limit ($top). Defaults to 500.
 
 		Returns the OData ``value`` list (raw FM field names). Raises if validation fails.
 		"""
 		from fmp_sync.utils.fm_api import build_odata_select, get_fm_data
 
-		top = 500
+		top = int(top) if top else 500
 
 		if self.doctype_source == "Native":
 			frappe.throw(_("This action is only available for mirrored FileMaker tables."))
@@ -760,19 +763,25 @@ class FMTables(Document):
 		return {"curl": curl}
 
 	@frappe.whitelist()
-	def fetch_sync_first_page_for_clipboard(self):
-		"""Run the same first-page OData GET as Show Sync Curl.
+	def fetch_sync_first_page_for_clipboard(self, top=None):
+		"""Run the same OData GET as Show Sync Curl.
+
+		Args:
+			top: Row limit ($top). Defaults to 500.
 
 		Returns ``rows`` (list of dicts) for the dialog table plus ``text`` (JSON) for optional copy.
 		Does not run sync. Uses server-side session (no password sent to the browser).
 		"""
-		rows = self._sync_first_page_fm_rows()
+		rows = self._sync_first_page_fm_rows(top=top)
 		text = json.dumps(rows, indent=2, default=str)
 		return {"row_count": len(rows), "text": text, "rows": rows}
 
 	@frappe.whitelist()
-	def import_first_500_rows_to_frappe(self):
-		"""Fetch the same first OData page as sync (``$top=500``, column ``$select``) and upsert into the mirrored DocType.
+	def import_first_500_rows_to_frappe(self, top=None):
+		"""Fetch an OData page (``$top`` + column ``$select``) and upsert into the mirrored DocType.
+
+		Args:
+			top: Row limit ($top). Defaults to 500.
 
 		Uses ``_convert_row`` / ``_upsert_record`` — same path as TS Compare upserts. Does not delete orphans
 		or run full sync. Intended after a successful preview/curl test.
@@ -785,7 +794,7 @@ class FMTables(Document):
 		if self.mirror_status not in ("Mirrored", "Linked"):
 			frappe.throw(_("Table must be Mirrored or Linked."))
 
-		rows = self._sync_first_page_fm_rows()
+		rows = self._sync_first_page_fm_rows(top=top)
 		if not rows:
 			return {
 				"fetched": 0,

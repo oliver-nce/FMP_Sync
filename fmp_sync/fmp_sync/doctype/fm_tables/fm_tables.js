@@ -163,8 +163,9 @@ function show_sync_curl_dialog(frm, curl, top) {
 		frappe.call({
 			method: "fetch_sync_first_page_for_clipboard",
 			doc: frm.doc,
+			args: { top: top },
 			freeze: true,
-			freeze_message: __("Fetching from FileMaker…"),
+			freeze_message: __("Fetching from FileMaker ($top={0})…", [top]),
 			callback: function (r) {
 				const msg = r.message;
 				if (!msg || typeof msg.text !== "string") {
@@ -183,13 +184,14 @@ function show_sync_curl_dialog(frm, curl, top) {
 		const dt = frm.doc.frappe_doctype || __("this DocType");
 		frappe.confirm(
 			__(
-				"Fetch the same OData page as sync ($top=500) and upsert into \"{0}\"? Existing rows with the same matching keys will be updated. This is not a full sync (orphan rows are not deleted).",
-				[dt],
+				"Fetch $top={0} via OData and upsert into \"{1}\"? Existing rows with the same matching keys will be updated. This is not a full sync (orphan rows are not deleted).",
+				[top, dt],
 			),
 			function () {
 				frappe.call({
 					method: "import_first_500_rows_to_frappe",
 					doc: frm.doc,
+					args: { top: top },
 					freeze: true,
 					freeze_message: __("Importing from FileMaker…"),
 					callback: function (r) {

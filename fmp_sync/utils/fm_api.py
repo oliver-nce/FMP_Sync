@@ -31,8 +31,10 @@ count_fm_records
 """
 
 import json
+import time
 
 import frappe
+import requests as _requests
 from frappe import _
 
 
@@ -42,6 +44,13 @@ from frappe import _
 
 # Default HTTP timeouts: (connect_seconds, read_seconds)
 DEFAULT_TIMEOUT = (30, 180)
+
+# Retry policy for transient connection failures (ChunkedEncodingError,
+# IncompleteRead).  FileMaker's OData endpoint frequently drops the TCP
+# connection mid-body when Python's requests sends Accept-Encoding: gzip
+# (chunked transfer).  Curl works because it defaults to identity encoding.
+ODATA_GET_RETRIES = 3
+ODATA_RETRY_BASE_DELAY = 1.0  # seconds; multiplied by attempt number
 
 
 # ---------------------------------------------------------------------------
@@ -108,7 +117,16 @@ def http_timeout(fm_conn_doc):
 
 
 def odata_get(session, url, params=None, timeout=None):
-	"""Single OData GET with error handling and JSON parsing.
+	"""Single OData GET with retry logic, error handling, and JSON parsing.
+
+	FileMaker's OData endpoint frequently drops the TCP connection mid-body
+	(``IncompleteRead`` / ``ChunkedEncodingError``) when the client advertises
+	``Accept-Encoding: gzip``.  This function:
+
+	1. Forces ``Accept-Encoding: identity`` so FM sends an uncompressed,
+	   non-chunked response (matching curl's default behaviour).
+	2. Retries up to ``ODATA_GET_RETRIES`` times on transient connection
+	   errors with exponential back-off.
 
 	Args:
 		session: requests.Session with Basic Auth
@@ -133,7 +151,11 @@ def odata_get(session, url, params=None, timeout=None):
 	)
 
 	url = _fm_odata_url(url, params)
-	resp = session.get(url, timeout=timeout)
+
+	# Force identity encoding to avoid FM's broken chunked-transfer responses.
+	headers = {"Accept-Encoding": "identity"}
+
+	resp = _odata_get_with_retries(session, url, timeout=timeout, headers=headers)
 
 	if resp.status_code == 401:
 		frappe.throw(_("OData authentication failed (401). Check credentials."))
@@ -144,6 +166,38 @@ def odata_get(session, url, params=None, timeout=None):
 
 	resp.raise_for_status()
 	return resp.json()
+
+
+def _odata_get_with_retries(session, url, timeout=None, headers=None):
+	"""HTTP GET with retries on transient connection errors.
+
+	Handles ``ChunkedEncodingError`` and ``ConnectionError`` which FileMaker
+	OData commonly raises when the response body is truncated.
+
+	Returns:
+		requests.Response
+	"""
+	last_exc = None
+	for attempt in range(ODATA_GET_RETRIES):
+		try:
+			return session.get(url, timeout=timeout, headers=headers)
+		except (
+			_requests.exceptions.ChunkedEncodingError,
+			_requests.exceptions.ConnectionError,
+		) as exc:
+			last_exc = exc
+			if attempt + 1 >= ODATA_GET_RETRIES:
+				raise
+			delay = ODATA_RETRY_BASE_DELAY * (attempt + 1)
+			frappe.logger("fmp_sync").warning(
+				"OData GET attempt %d/%d failed (%s), retrying in %.1fs: %s",
+				attempt + 1,
+				ODATA_GET_RETRIES,
+				type(exc).__name__,
+				delay,
+				url,
+			)
+			time.sleep(delay)
 
 
 def odata_get_all(session, url, params=None, timeout=None):
@@ -239,7 +293,9 @@ def count_fm_records(session, base_url, table_name, filter_expr=None, timeout=No
 	)
 
 	url = _fm_odata_url(url, params if params else None)
-	resp = session.get(url, timeout=t)
+	resp = _odata_get_with_retries(
+		session, url, timeout=t, headers={"Accept-Encoding": "identity"}
+	)
 	resp.raise_for_status()
 
 	try:

@@ -29,6 +29,7 @@ from fmp_sync.utils.fm_api import (
 	build_odata_select as _build_odata_select,
 	count_fm_records as _count_fm_records,
 	DEFAULT_TIMEOUT as ODATA_DEFAULT_TIMEOUT,
+	_quote_fm_filter_name,
 )
 
 # Batch size for upserts to avoid long DB locks
@@ -221,7 +222,10 @@ def _fetch_fm_key_set(
 		fm_col = reverse_mapping.get(frappe_key, frappe_key)
 		fm_key_columns.append(fm_col)
 
-	select_str = ",".join(fm_key_columns)
+	from fmp_sync.fmp_sync.doctype.filemaker_connection.filemaker_connection import (
+		_fm_join_select_clause,
+	)
+	select_str = _fm_join_select_clause(fm_key_columns)
 	url = f"{base_url}/{table_name}"
 	rows = _odata_get_all(
 		session, url, params={"$select": select_str}, timeout=http_timeout, page_size=page_size
@@ -285,17 +289,20 @@ def _fetch_records_by_keys(
 		batch_size = 50
 		for i in range(0, len(values), batch_size):
 			batch = values[i:i + batch_size]
-			# Build $filter: fm_col eq 'val1' or fm_col eq 'val2' or ...
+			# Build $filter: "fm_col" eq 'val1' or "fm_col" eq 'val2' or ...
+			# FM OData requires double-quoted field names for names with
+			# special chars (including underscores).
+			qcol = _quote_fm_filter_name(fm_col)
 			clauses = []
 			for v in batch:
 				# Quote string values, leave numeric values unquoted
 				try:
 					# If it parses as a number, use unquoted
 					float(v)
-					clauses.append(f"{fm_col} eq {v}")
+					clauses.append(f"{qcol} eq {v}")
 				except (ValueError, TypeError):
 					escaped = str(v).replace("'", "''")
-					clauses.append(f"{fm_col} eq '{escaped}'")
+					clauses.append(f"{qcol} eq '{escaped}'")
 
 			filter_expr = " or ".join(clauses)
 			params = {"$filter": filter_expr}

@@ -281,12 +281,28 @@ def _odata_get_all_batched(session, url, params, timeout, page_size):
 # ---------------------------------------------------------------------------
 
 
+def _quote_fm_filter_name(name):
+	"""Double-quote a FM field name for use in ``$filter`` expressions.
+
+	Per FileMaker OData docs, field names containing special characters
+	(including underscores) must be enclosed in double quotes in ``$filter``.
+	Simple alphabetic names (no underscores, digits-only suffixes) *could*
+	be left bare, but quoting is always safe, so we quote everything.
+	"""
+	n = str(name).strip()
+	# Escape any embedded double quotes (unlikely but defensive)
+	return '"' + n.replace('"', '""') + '"'
+
+
 def build_odata_filter(ts_field, cutoff, create_ts_field=None):
 	"""Build an OData ``$filter`` for changed-row detection.
 
 	Timestamps are always normalised to UTC with a ``Z`` suffix.
 	FileMaker's OData rejects timezone offsets like ``-04:00`` when the
 	colons are percent-encoded in the URL (returns 400 Bad Request).
+
+	Field names are double-quoted per FM OData docs (names with special
+	characters including underscores must be quoted in ``$filter``).
 
 	Args:
 		ts_field: FM modification-timestamp field name
@@ -304,9 +320,11 @@ def build_odata_filter(ts_field, cutoff, create_ts_field=None):
 		cutoff = cutoff.astimezone(timezone.utc)
 	iso = cutoff.strftime("%Y-%m-%dT%H:%M:%SZ")
 
-	expr = f"{ts_field} gt {iso}"
+	qts = _quote_fm_filter_name(ts_field)
+	expr = f"{qts} gt {iso}"
 	if create_ts_field and create_ts_field != ts_field:
-		expr = f"({ts_field} gt {iso} or {create_ts_field} gt {iso})"
+		qcr = _quote_fm_filter_name(create_ts_field)
+		expr = f"({qts} gt {iso} or {qcr} gt {iso})"
 	return expr
 
 

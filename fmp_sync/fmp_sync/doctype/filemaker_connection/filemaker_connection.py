@@ -62,13 +62,32 @@ def _fm_odata_url(url, params=None):
 	- Option **names** stay literal ``$select``, ``$top`` (curl-style). Some stacks mishandle
 	  ``%24top`` even though it is valid.
 	- **Values** use ``urllib.parse.quote`` so spaces are ``%20``, never ``+`` (FileMaker rejects ``+``).
+	- **$filter** leaves OData syntax characters (colons, parentheses, single quotes,
+	  commas) unencoded — FM's parser does not decode ``%3A`` / ``%28`` etc. back to
+	  their literal forms before evaluating the expression (non-compliant behaviour).
+	- **$select** leaves commas, double quotes, spaces, and special chars
+	  unencoded — FM wraps non-simple field names in ``"…"`` and does not
+	  decode ``%22`` / ``%20`` / ``%3F`` back to literals.
+	- **$filter** likewise leaves colons, parentheses, quotes, spaces, etc.
+	  literal — FM does not percent-decode before parsing the expression.
 	"""
 	if not params:
 		return url
 	parts = []
 	for k, v in params.items():
-		# Leave commas in $select unencoded (curl-style); FileMaker may 400 on %2C-separated lists.
-		safe = "," if k == "$select" else ""
+		if k == "$select":
+			# Double quotes wrap non-simple FM field names (e.g. "Active?",
+			# "Address 1").  Spaces, question marks, etc. appear inside
+			# those quoted names.  FM rejects percent-encoded forms.
+			safe = '," ?!@#&'
+		elif k == "$filter":
+			# Colons (timestamps), parentheses (grouping), single quotes
+			# (string literals), double quotes (field-name quoting), commas,
+			# spaces, question marks — all must stay literal.  FM does NOT
+			# decode percent-encoded chars before parsing.
+			safe = "\",:()' /?!"
+		else:
+			safe = ""
 		parts.append(f"{k}={quote(str(v), safe=safe)}")
 	return f"{url}?{'&'.join(parts)}"
 

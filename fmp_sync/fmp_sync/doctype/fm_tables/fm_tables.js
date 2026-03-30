@@ -64,10 +64,11 @@ function _label_from_fmp_fieldname(fn) {
 		.join(" ");
 }
 
-/** Copy-paste curl for first sync OData page ($top=500). Does not run sync; password visible. */
-function show_sync_curl_dialog(frm, curl) {
+/** Copy-paste curl for OData page. Does not run sync; password visible. */
+function show_sync_curl_dialog(frm, curl, top) {
+	top = top || 500;
 	const d = new frappe.ui.Dialog({
-		title: __("Test curl — first sync OData page (500 rows)"),
+		title: __("Test curl — OData page ($top={0})", [top]),
 		fields: [
 			{
 				fieldtype: "HTML",
@@ -75,14 +76,15 @@ function show_sync_curl_dialog(frm, curl) {
 				options:
 					'<p style="margin-bottom:10px">' +
 					'<button type="button" class="btn btn-primary btn-sm" id="fmp-sync-fetch-copy-rows">' +
-					__("Fetch & copy JSON (first 500)") +
+					__("Fetch & copy JSON (first {0})", [top]) +
 					"</button> " +
 					'<button type="button" class="btn btn-warning btn-sm" id="fmp-sync-import-first-page">' +
-					__("Import first 500 into Frappe") +
+					__("Import first {0} into Frappe", [top]) +
 					"</button></p>" +
 					"<p class='text-muted small' style='margin-bottom:0'>" +
 					__(
-						"Same OData request as sync: $top=500 and $select from your mapping. Copy JSON only reads data. Import upserts into the mirrored DocType (matching keys updated like TS Compare) — not a full sync (no orphan deletes).",
+						"Same OData request as sync: $top={0} and $select from your mapping. Copy JSON only reads data. Import upserts into the mirrored DocType (matching keys updated like TS Compare) — not a full sync (no orphan deletes).",
+						[top],
 					) +
 					"</p>",
 			},
@@ -97,7 +99,8 @@ function show_sync_curl_dialog(frm, curl) {
 					"</p>" +
 					"<p class='text-muted small'>" +
 					__(
-						"Matches the first OData GET for this table: $top=500 and $select from your column mapping (same as Truncate & Replace first page).",
+						"Matches the first OData GET for this table: $top={0} and $select from your column mapping (same as Truncate & Replace first page).",
+						[top],
 					) +
 					"</p>",
 			},
@@ -365,18 +368,43 @@ frappe.ui.form.on("FM Tables", {
 				frm.add_custom_button(
 					__("Show Sync Curl"),
 					function () {
-						frappe.call({
-							method: "get_sync_curl",
-							doc: frm.doc,
-							freeze: true,
-							freeze_message: __("Building curl…"),
-							callback: function (r) {
-								const curl = r.message && r.message.curl;
-								if (curl) {
-									show_sync_curl_dialog(frm, curl);
+						const top_dialog = new frappe.ui.Dialog({
+							title: __("Choose $top (row limit)"),
+							fields: [
+								{
+									fieldtype: "Int",
+									fieldname: "top_value",
+									label: __("$top"),
+									default: 500,
+									description: __(
+										"Number of rows to request from FileMaker. Common values: 1 (connectivity test), 10, 50, 100, 500, 1000, 5000.",
+									),
+								},
+							],
+							primary_action_label: __("Build Curl"),
+							primary_action: function (values) {
+								const chosen_top = cint(values.top_value);
+								if (chosen_top < 1) {
+									frappe.msgprint(__("$top must be at least 1."));
+									return;
 								}
+								top_dialog.hide();
+								frappe.call({
+									method: "get_sync_curl",
+									doc: frm.doc,
+									args: { top: chosen_top },
+									freeze: true,
+									freeze_message: __("Building curl…"),
+									callback: function (r) {
+										const curl = r.message && r.message.curl;
+										if (curl) {
+											show_sync_curl_dialog(frm, curl, chosen_top);
+										}
+									},
+								});
 							},
 						});
+						top_dialog.show();
 					},
 					__("Actions"),
 				);

@@ -401,8 +401,8 @@ class FMTables(Document):
 		"""
 		import json
 
+		from fmp_sync.utils.fm_api import get_fm_session
 		from fmp_sync.utils.schema_mirror import (
-			get_fm_session,
 			get_table_schema,
 			classify_field,
 			resolve_fieldname,
@@ -574,23 +574,15 @@ class FMTables(Document):
 		"""
 		Debug: Fetch one row via OData and show detailed info about field matching.
 		"""
-		from fmp_sync.utils.schema_mirror import get_fm_session
+		from fmp_sync.utils.fm_api import get_fm_data
 
 		if not self.frappe_doctype:
 			frappe.throw(_("No Frappe DocType associated with this table"))
 
 		fm_conn = frappe.get_single("FileMaker Connection")
-		session, base_url = get_fm_session(fm_conn)
 
-		# Fetch one row via OData (FM-safe query encoding — no + for spaces)
-		from fmp_sync.fmp_sync.doctype.filemaker_connection.filemaker_connection import _fm_odata_url
-
-		url = _fm_odata_url(f"{base_url}/{self.table_name}", {"$top": "1"})
-		resp = session.get(url, timeout=30)
-		resp.raise_for_status()
-		data = resp.json()
-		rows = data.get("value", [])
-		session.close()
+		# Fetch one row via fm_api (transport-agnostic)
+		rows = get_fm_data(self.table_name, fm_conn_doc=fm_conn, top=1)
 
 		if not rows:
 			frappe.throw(_("No rows in source table"))
@@ -682,8 +674,7 @@ class FMTables(Document):
 
 		Returns the OData ``value`` list (raw FM field names). Raises if validation fails.
 		"""
-		from fmp_sync.utils.data_sync import _build_odata_select, _odata_get, odata_http_timeout
-		from fmp_sync.utils.schema_mirror import get_fm_session
+		from fmp_sync.utils.fm_api import build_odata_select, get_fm_data
 
 		top = 500
 
@@ -704,31 +695,28 @@ class FMTables(Document):
 		if self.column_mapping:
 			column_mapping = json.loads(self.column_mapping)
 
-		select_fields = _build_odata_select(column_mapping)
-		params = {"$top": str(top)}
-		if select_fields:
-			params["$select"] = select_fields
+		select_fields = build_odata_select(column_mapping)
 
-		session, base_url = get_fm_session(fm_conn)
-		http_timeout = odata_http_timeout(fm_conn)
-		try:
-			url = f"{base_url}/{self.table_name}"
-			data = _odata_get(session, url, params=params, timeout=http_timeout)
-		finally:
-			session.close()
-
-		return data.get("value") or []
+		return get_fm_data(
+			self.table_name,
+			fm_conn_doc=fm_conn,
+			select=select_fields,
+			top=top,
+		)
 
 	@frappe.whitelist()
-	def get_sync_curl(self):
-		"""Shell-safe curl for the first OData page sync would use ($top=500, $select from mapping).
+	def get_sync_curl(self, top=None):
+		"""Shell-safe curl for an OData page ($top + $select from mapping).
 
 		Does not run sync. Password is embedded for local terminal testing only.
+
+		Args:
+			top: Number of rows to request ($top). Defaults to 500.
 		"""
 		from fmp_sync.fmp_sync.doctype.filemaker_connection.filemaker_connection import _fm_odata_url
 		from fmp_sync.utils.data_sync import _build_odata_select
 
-		SYNC_CURL_TOP = 500
+		SYNC_CURL_TOP = int(top) if top else 500
 
 		if self.doctype_source == "Native":
 			frappe.throw(_("Sync curl is only available for mirrored FileMaker tables, not Native-linked DocTypes."))

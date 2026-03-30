@@ -20,33 +20,22 @@ import pytz
 from frappe import _
 from frappe.utils import now_datetime
 
-from fmp_sync.utils.schema_mirror import get_fm_session
+from fmp_sync.utils.fm_api import (
+	get_fm_session,
+	http_timeout as odata_http_timeout,
+	odata_get as _odata_get,
+	odata_get_all as _odata_get_all,
+	build_odata_filter as _build_odata_filter,
+	build_odata_select as _build_odata_select,
+	count_fm_records as _count_fm_records,
+	DEFAULT_TIMEOUT as ODATA_DEFAULT_TIMEOUT,
+)
 
 # Batch size for upserts to avoid long DB locks
 BATCH_SIZE = 500
 
 # OData page size — FM Server default is 1000; explicit $top keeps things predictable
 ODATA_PAGE_SIZE = 1000
-
-# Default HTTP timeouts for OData: (connect, read) seconds per requests call.
-ODATA_DEFAULT_TIMEOUT = (30, 180)
-
-
-def odata_http_timeout(fm_conn_doc):
-	"""Return ``(connect, read)`` timeout tuple for ``requests`` from FileMaker Connection.
-
-	Read timeout applies to each OData page (slow servers / large payloads need more).
-	"""
-	read = getattr(fm_conn_doc, "odata_read_timeout", None)
-	if read in (None, ""):
-		read = ODATA_DEFAULT_TIMEOUT[1]
-	try:
-		read = int(read)
-	except (TypeError, ValueError):
-		read = ODATA_DEFAULT_TIMEOUT[1]
-	read = max(30, min(read, 900))
-	connect = min(30, max(5, read // 6))
-	return (connect, read)
 
 
 # =============================================================================
@@ -132,171 +121,11 @@ def get_timezone(tz_name):
 
 
 # =============================================================================
-# OData data-access helpers  (NEW — replace PyMySQL cursors)
+# OData helpers — now imported from fm_api.py (single source of truth).
+# The names _odata_get, _odata_get_all, _build_odata_filter, _build_odata_select,
+# and _count_fm_records are re-imported at the top of this file so existing
+# callers (including fm_tables.py) continue to work without changes.
 # =============================================================================
-
-
-def _odata_get(session, url, params=None, timeout=None):
-	"""Core OData GET with error handling and JSON parsing.
-
-	Args:
-		session: requests.Session with Basic Auth
-		url: Full OData URL
-		params: Optional dict of query parameters ($filter, $select, etc.)
-		timeout: ``requests`` timeout — int (total) or ``(connect, read)`` tuple
-
-	Returns:
-		Parsed JSON response dict
-
-	Raises:
-		Exception with descriptive message on HTTP errors
-	"""
-	if timeout is None:
-		timeout = ODATA_DEFAULT_TIMEOUT
-	elif isinstance(timeout, (int, float)):
-		t = int(timeout)
-		timeout = (min(30, max(5, t // 4)), t)
-	from fmp_sync.fmp_sync.doctype.filemaker_connection.filemaker_connection import _fm_odata_url
-
-	url = _fm_odata_url(url, params)
-	resp = session.get(url, timeout=timeout)
-
-	if resp.status_code == 401:
-		frappe.throw(_("OData authentication failed (401). Check credentials."))
-	if resp.status_code == 403:
-		frappe.throw(_("OData access forbidden (403). Check fmodata privilege."))
-	if resp.status_code == 404:
-		frappe.throw(_("OData resource not found (404): {0}").format(resp.url))
-
-	resp.raise_for_status()
-	return resp.json()
-
-
-def _odata_get_all(session, url, params=None, timeout=None):
-	"""Paginated OData GET — follows @odata.nextLink until exhausted.
-
-	FileMaker Server returns pages of ~1000 records by default.
-	This function accumulates all records from all pages.
-
-	Args:
-		session: requests.Session with Basic Auth
-		url: Initial OData entity set URL
-		params: Initial query params ($filter, $select, $orderby, etc.)
-		timeout: Per-request timeout (int or ``(connect, read)`` tuple)
-
-	Returns:
-		list of record dicts (all pages combined)
-	"""
-	if timeout is None:
-		timeout = ODATA_DEFAULT_TIMEOUT
-	all_records = []
-	next_url = url
-	next_params = params
-
-	while next_url:
-		data = _odata_get(session, next_url, params=next_params, timeout=timeout)
-		records = data.get("value", [])
-		all_records.extend(records)
-
-		# After the first request, @odata.nextLink is an absolute URL
-		# with query params baked in — no separate params dict needed.
-		next_url = data.get("@odata.nextLink")
-		next_params = None  # nextLink carries its own query string
-
-	return all_records
-
-
-def _build_odata_filter(ts_field, cutoff, create_ts_field=None):
-	"""Build an OData $filter expression for changed-row detection.
-
-	OData v4 filter syntax:
-	  {field} gt {iso_timestamp}
-
-	When both modified and created timestamp fields exist, we OR them
-	to catch rows where modifiedTS is null but createdTS is new.
-
-	Args:
-		ts_field: FM field name for modification timestamp
-		cutoff: datetime — rows newer than this are fetched
-		create_ts_field: Optional FM field name for creation timestamp
-
-	Returns:
-		str: OData $filter expression
-	"""
-	# Format as ISO 8601 with explicit UTC offset for OData
-	if cutoff.tzinfo is None:
-		iso = cutoff.isoformat() + "Z"
-	else:
-		iso = cutoff.isoformat()
-
-	filter_expr = f"{ts_field} gt {iso}"
-
-	if create_ts_field and create_ts_field != ts_field:
-		# Also catch rows where modified_ts is null but created_ts is new
-		filter_expr = f"({ts_field} gt {iso} or {create_ts_field} gt {iso})"
-
-	return filter_expr
-
-
-def _build_odata_select(column_mapping):
-	"""Build an OData $select string from column mapping.
-
-	Only selects fields that are in the column_mapping (i.e. those that
-	were mirrored into the Frappe DocType). This avoids pulling container
-	fields, skipped fields, etc.
-
-	FileMaker rejects unquoted names with spaces (``Address%201`` → syntax error at ``1``);
-	non-simple FM names are double-quoted via ``_fm_join_select_clause``.
-
-	Args:
-		column_mapping: Dict mapping FM field names → Frappe fieldname info
-
-	Returns:
-		str: Comma-separated FM field names for $select, or None if no mapping
-	"""
-	if not column_mapping:
-		return None
-	from fmp_sync.fmp_sync.doctype.filemaker_connection.filemaker_connection import (
-		_fm_join_select_clause,
-	)
-
-	return _fm_join_select_clause(list(column_mapping.keys()))
-
-
-# =============================================================================
-# OData record-fetching functions  (NEW — replace SQL queries)
-# =============================================================================
-
-
-def _count_fm_records(session, base_url, table_name, filter_expr=None, http_timeout=None):
-	"""Count records in a FM table via OData $count.
-
-	Args:
-		session: requests.Session
-		base_url: OData base URL
-		table_name: FM table name
-		filter_expr: Optional $filter expression
-		http_timeout: Optional ``(connect, read)`` for requests
-
-	Returns:
-		int: Record count
-	"""
-	url = f"{base_url}/{table_name}/$count"
-	params = {}
-	if filter_expr:
-		params["$filter"] = filter_expr
-
-	t = http_timeout if http_timeout is not None else ODATA_DEFAULT_TIMEOUT
-	from fmp_sync.fmp_sync.doctype.filemaker_connection.filemaker_connection import _fm_odata_url
-
-	url = _fm_odata_url(url, params if params else None)
-	resp = session.get(url, timeout=t)
-	resp.raise_for_status()
-
-	try:
-		return int(resp.text.strip())
-	except (ValueError, TypeError):
-		return 0
 
 
 def _fetch_changed_records(

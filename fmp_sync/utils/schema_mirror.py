@@ -101,78 +101,22 @@ def get_matching_fields_list(fm_table_doc):
 
 
 # ---------------------------------------------------------------------------
-# OData session  (NEW — replaces get_fm_connection / PyMySQL)
+# FM API access  (delegated to fm_api.py abstraction layer)
 # ---------------------------------------------------------------------------
 
-
-def get_fm_session(fm_conn_doc=None):
-	"""Get an OData session and base URL from the FileMaker Connection single doc.
-
-	Args:
-		fm_conn_doc: FileMaker Connection document (optional — loads singleton if None)
-
-	Returns:
-		tuple: (requests.Session, base_url string)
-	"""
-	if fm_conn_doc is None:
-		fm_conn_doc = frappe.get_single("FileMaker Connection")
-	return fm_conn_doc.get_odata_session()
-
-
-# Keep the old name as an alias so callers that haven't been updated yet still work.
-# TODO: remove once all callers are migrated.
-get_fm_connection = get_fm_session
-
-
-# ---------------------------------------------------------------------------
-# OData helpers
-# ---------------------------------------------------------------------------
-
-
-def _odata_get(session, url, params=None, timeout=30):
-	"""Perform an OData GET request with error handling.
-
-	Args:
-		session: requests.Session with auth configured
-		url: Full URL to GET
-		params: Optional query string params dict
-		timeout: Request timeout in seconds
-
-	Returns:
-		Parsed JSON response dict
-
-	Raises:
-		Exception with descriptive error on failure
-	"""
-	from fmp_sync.fmp_sync.doctype.filemaker_connection.filemaker_connection import _fm_odata_url
-
-	url = _fm_odata_url(url, params)
-	resp = session.get(url, timeout=timeout)
-
-	if resp.status_code == 401:
-		frappe.throw(_("OData authentication failed (401). Check credentials."))
-	if resp.status_code == 403:
-		frappe.throw(_("OData access forbidden (403). Check fmodata privilege."))
-	if resp.status_code == 404:
-		frappe.throw(_("OData resource not found (404): {0}").format(url))
-
-	resp.raise_for_status()
-	return resp.json()
-
-
-# ---------------------------------------------------------------------------
-# Schema discovery  (NEW — replaces information_schema queries)
-# ---------------------------------------------------------------------------
+from fmp_sync.utils.fm_api import (  # noqa: E402
+	get_fm_session,
+	get_fm_connection,
+	odata_get as _odata_get,
+)
 
 
 def discover_tables_and_views(session_or_conn_doc):
-	"""Discover all tables from FileMaker via OData.
+	"""Discover all tables from FileMaker.
 
-	Delegates to the FileMaker Connection doctype's discover_tables() if
-	passed a document, or queries OData directly if passed a session tuple.
-
-	This function name is kept for backward compatibility with callers
-	(e.g. filemaker_connection.py).
+	Delegates to fm_api.get_fm_metadata() for the actual transport.
+	This wrapper is kept for backward compatibility with callers
+	(e.g. filemaker_connection.py) that pass a session tuple or doc.
 
 	Args:
 		session_or_conn_doc: Either a FileMaker Connection doc or (session, base_url) tuple
@@ -180,47 +124,15 @@ def discover_tables_and_views(session_or_conn_doc):
 	Returns:
 		List of dicts: [{"table_name": "...", "table_type": "BASE TABLE"}, ...]
 	"""
+	from fmp_sync.utils.fm_api import get_fm_metadata
+
 	if hasattr(session_or_conn_doc, "get_odata_session"):
-		# It's a FileMaker Connection doc — delegate
-		return session_or_conn_doc.discover_tables()
+		return get_fm_metadata(fm_conn_doc=session_or_conn_doc)
 
-	# It's a (session, base_url) tuple
+	# Legacy (session, base_url) tuple — call through to fm_api internals
+	from fmp_sync.utils.fm_api import _odata_discover_base_tables
 	session, base_url = session_or_conn_doc
-	return _discover_base_tables(session, base_url)
-
-
-def _discover_base_tables(session, base_url):
-	"""Query OData service document + FileMaker_Tables to find base tables.
-
-	Returns:
-		List of dicts: [{"table_name": "...", "table_type": "BASE TABLE"|"TABLE OCCURRENCE"}, ...]
-	"""
-	# Step 1: Get all entity sets from service document
-	data = _odata_get(session, base_url)
-	entity_sets = data.get("value", [])
-	all_tables = {es.get("name") or es.get("url"): "TABLE" for es in entity_sets}
-
-	# Step 2: Try FileMaker_Tables to distinguish base tables from TOs
-	base_tables = set()
-	try:
-		fm_data = _odata_get(session, f"{base_url}/FileMaker_Tables")
-		for row in fm_data.get("value", []):
-			table_name = row.get("TableName") or row.get("tableName")
-			base_name = row.get("BaseTableName") or row.get("baseTableName")
-			if table_name and base_name and table_name == base_name:
-				base_tables.add(table_name)
-	except Exception:
-		pass  # FileMaker_Tables may not be accessible — fall back to all
-
-	result = []
-	for table_name in sorted(all_tables.keys()):
-		if table_name.startswith("FileMaker_"):
-			continue
-		result.append({
-			"table_name": table_name,
-			"table_type": "BASE TABLE" if (table_name in base_tables or not base_tables) else "TABLE OCCURRENCE",
-		})
-	return result
+	return _odata_discover_base_tables(session, base_url)
 
 
 def get_table_schema(session_or_tuple, table_name, fm_conn_doc):

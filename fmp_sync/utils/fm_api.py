@@ -284,6 +284,10 @@ def _odata_get_all_batched(session, url, params, timeout, page_size):
 def build_odata_filter(ts_field, cutoff, create_ts_field=None):
 	"""Build an OData ``$filter`` for changed-row detection.
 
+	Timestamps are always normalised to UTC with a ``Z`` suffix.
+	FileMaker's OData rejects timezone offsets like ``-04:00`` when the
+	colons are percent-encoded in the URL (returns 400 Bad Request).
+
 	Args:
 		ts_field: FM modification-timestamp field name
 		cutoff: datetime — rows newer than this are returned
@@ -292,10 +296,13 @@ def build_odata_filter(ts_field, cutoff, create_ts_field=None):
 	Returns:
 		str: OData $filter expression
 	"""
-	if cutoff.tzinfo is None:
-		iso = cutoff.isoformat() + "Z"
-	else:
-		iso = cutoff.isoformat()
+	from datetime import timezone
+
+	# Always emit UTC with Z suffix — FM OData can't handle percent-encoded
+	# timezone offsets like %2D04%3A00 in $filter expressions.
+	if cutoff.tzinfo is not None:
+		cutoff = cutoff.astimezone(timezone.utc)
+	iso = cutoff.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 	expr = f"{ts_field} gt {iso}"
 	if create_ts_field and create_ts_field != ts_field:
